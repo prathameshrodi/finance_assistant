@@ -1,0 +1,153 @@
+# ==========================================
+# 🔒 Environment Variables & Secrets
+# ==========================================
+.env
+.env.*
+*.env
+!.env.example
+
+# ==========================================
+# 🗄️ Databases & Storage
+# ==========================================
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.sqlite3-journal
+finance.db
+*.rdb
+*.aof
+
+# ==========================================
+# 📄 User Financial Documents & Data Files
+# ==========================================
+FinancialStatements/
+**/FinancialStatements/**
+*.xlsx
+*.xls
+*.csv
+*.pdf
+temp/
+**/temp/**
+scratch/
+**/scratch/**
+*.parquet
+*.feather
+
+# ==========================================
+# 🌐 Next.js & Node.js (Frontend)
+# ==========================================
+node_modules/
+**/node_modules/**
+.next/
+**/.next/**
+out/
+build/
+dist/
+.turbo/
+.vercel
+*.tsbuildinfo
+
+# Node package manager logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ==========================================
+# 🐍 Python (Backend)
+# ==========================================
+__pycache__/
+**/__pycache__/**
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / Packaging
+.eggs/
+*.egg-info/
+develop-eggs/
+dist/
+downloads/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller / Build
+*.manifest
+*.spec
+
+# Logs & Cache
+*.log
+logs/
+**/logs/**
+pip-log.txt
+pip-delete-this-directory.txt
+.cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+.hypothesis/
+
+# Unit test / Coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+*.cover
+*.py.cover
+cover/
+
+# Jupyter / IPython
+.ipynb_checkpoints
+profile_default/
+ipython_config.py
+
+# ==========================================
+# 📦 Virtual Environments
+# ==========================================
+.venv
+venv/
+env/
+ENV/
+langgraph_venv/
+env.bak/
+venv.bak/
+.pdm-python
+.pdm-build/
+.pixi/
+
+# ==========================================
+# 💻 IDE & OS Generated Files
+# ==========================================
+.idea/
+**/.idea/**
+.vscode/
+**/.vscode/**
+*.swp
+*.swo
+*~
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+tempCodeRunnerFile.py
