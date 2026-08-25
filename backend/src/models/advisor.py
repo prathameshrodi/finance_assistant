@@ -1,7 +1,9 @@
-from sqlalchemy import Column, String, Integer, LargeBinary, DateTime, JSON, ForeignKey
-from src.database import Base
 import uuid
 from datetime import datetime
+
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, LargeBinary, String
+
+from src.database import Base
 
 
 class AdvisorSession(Base):

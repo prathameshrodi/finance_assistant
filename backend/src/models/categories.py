@@ -1,8 +1,10 @@
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey
-from sqlalchemy.orm import relationship
-from src.database import Base
 import uuid
 from datetime import datetime
+
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String
+from sqlalchemy.orm import relationship
+
+from src.database import Base
 
 
 class Category(Base):

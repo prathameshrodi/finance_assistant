@@ -1,7 +1,9 @@
-from sqlalchemy import Column, String, Float, Date, DateTime, JSON, ForeignKey
-from src.database import Base
 import uuid
 from datetime import datetime
+
+from sqlalchemy import JSON, Column, Date, DateTime, Float, ForeignKey, String
+
+from src.database import Base
 
 
 class Budget(Base):

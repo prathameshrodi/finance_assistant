@@ -3,29 +3,28 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, date
-from typing import List
+from datetime import date, datetime
 
 import openpyxl
 from json_repair import repair_json
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import END, START, StateGraph
 
 from src.ai.prompts import *
 from src.ai.state import UnifiedIngestionState
 from src.database import SessionLocal
 from src.models import (
-    TransactionFingerprintSource,
-    Category,
-    StagedTransaction,
-    SyncRun,
-    StagedHolding,
     Account,
-    Transaction,
-    PortfolioHolding,
+    Category,
     Institution,
     MarketPriceCache,
+    PortfolioHolding,
+    StagedHolding,
+    StagedTransaction,
+    SyncRun,
+    Transaction,
+    TransactionFingerprintSource,
 )
 
 
@@ -48,7 +47,9 @@ def parse_bank_statement_node(state: UnifiedIngestionState) -> dict:
         default_cat_id = list(categories.values())[0] if categories else None
 
         # Resolve or create default fallback account
-        default_acc = db.query(Account).filter_by(id=state.get("account_id")).first() if state.get("account_id") else None
+        default_acc = (
+            db.query(Account).filter_by(id=state.get("account_id")).first() if state.get("account_id") else None
+        )
         if not default_acc:
             default_acc = db.query(Account).filter_by(user_id=user_id).first()
 
@@ -94,17 +95,24 @@ def parse_bank_statement_node(state: UnifiedIngestionState) -> dict:
                     db.add(inst)
                     db.flush()
 
-                target_acc = db.query(Account).filter(
-                    Account.user_id == user_id,
-                    Account.institution_id == inst.id,
-                    (Account.account_number_masked == account_number) | (Account.account_name == f"{bank_name} ({account_number})"),
-                ).first()
+                target_acc = (
+                    db.query(Account)
+                    .filter(
+                        Account.user_id == user_id,
+                        Account.institution_id == inst.id,
+                        (Account.account_number_masked == account_number)
+                        | (Account.account_name == f"{bank_name} ({account_number})"),
+                    )
+                    .first()
+                )
                 if not target_acc:
                     target_acc = Account(
                         id=str(uuid.uuid4()),
                         user_id=user_id,
                         institution_id=inst.id,
-                        account_type=account_type if account_type in ["savings", "current", "credit_card", "cash"] else "savings",
+                        account_type=(
+                            account_type if account_type in ["savings", "current", "credit_card", "cash"] else "savings"
+                        ),
                         account_name=f"{bank_name} ({account_number})",
                         account_number_masked=account_number,
                         currency="INR",
@@ -244,7 +252,9 @@ def parse_bank_statement_node(state: UnifiedIngestionState) -> dict:
         db.commit()
 
         if skip_staging:
-            logger.info(f"Direct Commit (Skipped Staging): Ingested {committed_count} live transactions ({duplicates_count} duplicates skipped).")
+            logger.info(
+                f"Direct Commit (Skipped Staging): Ingested {committed_count} live transactions ({duplicates_count} duplicates skipped)."
+            )
         else:
             logger.info(f"Staged {len(data)} transactions for user review ({duplicates_count} duplicates flagged).")
 
@@ -312,7 +322,11 @@ def parse_demat_statement_graph(state: UnifiedIngestionState) -> dict:
                     db.add(broker_inst)
                     db.flush()
 
-                demat_acc = db.query(Account).filter_by(user_id=user_id, institution_id=broker_inst.id, account_type="demat").first()
+                demat_acc = (
+                    db.query(Account)
+                    .filter_by(user_id=user_id, institution_id=broker_inst.id, account_type="demat")
+                    .first()
+                )
                 if not demat_acc:
                     demat_acc = Account(
                         id=str(uuid.uuid4()),
@@ -328,9 +342,9 @@ def parse_demat_statement_graph(state: UnifiedIngestionState) -> dict:
                     db.add(demat_acc)
                     db.flush()
 
-                existing_holding = db.query(PortfolioHolding).filter_by(
-                    user_id=user_id, symbol=symbol, exchange=exchange
-                ).first()
+                existing_holding = (
+                    db.query(PortfolioHolding).filter_by(user_id=user_id, symbol=symbol, exchange=exchange).first()
+                )
 
                 if existing_holding:
                     existing_holding.quantity = quantity
@@ -338,18 +352,20 @@ def parse_demat_statement_graph(state: UnifiedIngestionState) -> dict:
                     existing_holding.account_id = demat_acc.id
                     existing_holding.last_synced_at = datetime.utcnow()
                 else:
-                    db.add(PortfolioHolding(
-                        id=str(uuid.uuid4()),
-                        user_id=user_id,
-                        account_id=demat_acc.id,
-                        symbol=symbol,
-                        exchange=exchange,
-                        asset_class=asset_class,
-                        sector=sector,
-                        quantity=quantity,
-                        avg_buy_price=avg_buy_price,
-                        last_synced_at=datetime.utcnow(),
-                    ))
+                    db.add(
+                        PortfolioHolding(
+                            id=str(uuid.uuid4()),
+                            user_id=user_id,
+                            account_id=demat_acc.id,
+                            symbol=symbol,
+                            exchange=exchange,
+                            asset_class=asset_class,
+                            sector=sector,
+                            quantity=quantity,
+                            avg_buy_price=avg_buy_price,
+                            last_synced_at=datetime.utcnow(),
+                        )
+                    )
 
                 if current_price > 0:
                     cache_item = db.query(MarketPriceCache).filter_by(symbol=symbol, exchange=exchange).first()
@@ -357,12 +373,14 @@ def parse_demat_statement_graph(state: UnifiedIngestionState) -> dict:
                         cache_item.current_price = current_price
                         cache_item.fetched_at = datetime.utcnow()
                     else:
-                        db.add(MarketPriceCache(
-                            symbol=symbol,
-                            exchange=exchange,
-                            current_price=current_price,
-                            fetched_at=datetime.utcnow(),
-                        ))
+                        db.add(
+                            MarketPriceCache(
+                                symbol=symbol,
+                                exchange=exchange,
+                                current_price=current_price,
+                                fetched_at=datetime.utcnow(),
+                            )
+                        )
 
                 committed_count += 1
             else:
@@ -420,20 +438,17 @@ def parse_demat_statement_graph(state: UnifiedIngestionState) -> dict:
         "committed_count": committed_count,
         "skip_staging": skip_staging,
     }
+
+
 from src.utils.date_parsers import parse_date
 from src.utils.errors import InvalidDocumentUploadError
 from src.utils.log_functions import logtime
 from src.utils.pdf_extractor import extract_pdf_text_helper
-from src.utils.temproary_log import get_file_name, check_for_old_record, read_from_file, delete_file
-from src.utils.temproary_log import write_to_file
+from src.utils.temproary_log import check_for_old_record, get_file_name, read_from_file, write_to_file
 
 logger = logging.getLogger(__name__)
 
-llm = ChatOllama(
-    model="gemma2:2b",
-    temperature=0,
-    format="json"
-)
+llm = ChatOllama(model="gemma2:2b", temperature=0, format="json")
 
 
 @logtime
@@ -445,7 +460,7 @@ def extract_excel_node(state: UnifiedIngestionState) -> dict:
     """
     file_path = state["file_path"]
     logger.info(f"Reading Excel Ledger from: {file_path}")
-    if file_path.split(".")[-1] not in ['xls', 'xlsx']:
+    if file_path.split(".")[-1] not in ["xls", "xlsx"]:
         return state
     file_name = get_file_name(file_path)
     if check_for_old_record(file_name):
@@ -476,7 +491,11 @@ def extract_excel_node(state: UnifiedIngestionState) -> dict:
         amount_col = find_col(["amount", "amount (₹)", "amount(₹)", "amount (rs)", "total", "spent", "value", "price"])
         debit_col = find_col(["debit", "withdrawal", "dr", "outgoing"])
         credit_col = find_col(["credit", "deposit", "cr", "incoming"])
-        bank_col = find_col(["bank",])
+        bank_col = find_col(
+            [
+                "bank",
+            ]
+        )
         account_number = find_col(["bank", "account", "source", "mode", "payment_method"])
 
         extracted = []
@@ -514,7 +533,9 @@ def extract_excel_node(state: UnifiedIngestionState) -> dict:
             raw_desc = str(row[desc_col]).strip() if desc_col is not None and row[desc_col] else ""
 
             if party_val and raw_desc:
-                full_description = f"{party_val} - {raw_desc}" if party_val.lower() not in raw_desc.lower() else raw_desc
+                full_description = (
+                    f"{party_val} - {raw_desc}" if party_val.lower() not in raw_desc.lower() else raw_desc
+                )
                 merchant_clean = party_val
             elif party_val:
                 full_description = party_val
@@ -543,7 +564,15 @@ def extract_excel_node(state: UnifiedIngestionState) -> dict:
 
             if amount_col is not None and row[amount_col]:
                 try:
-                    val_str = str(row[amount_col]).replace(",", "").replace("₹", "").replace("$", "").replace("Rs.", "").replace("INR", "").strip()
+                    val_str = (
+                        str(row[amount_col])
+                        .replace(",", "")
+                        .replace("₹", "")
+                        .replace("$", "")
+                        .replace("Rs.", "")
+                        .replace("INR", "")
+                        .strip()
+                    )
                     val = float(val_str)
                     amount = abs(val)
                     if type_col is None:
@@ -570,19 +599,23 @@ def extract_excel_node(state: UnifiedIngestionState) -> dict:
             cat_val = str(row[cat_col]).strip() if cat_col is not None and row[cat_col] else "Other Expenses"
             bank_val = str(row[bank_col]).strip() if bank_col is not None and row[bank_col] else "Monthly Ledger"
 
-            extracted.append({
-                "date": date_str,
-                "description": full_description,
-                "merchant": merchant_clean if merchant_clean else "Unknown",
-                "amount": amount,
-                "txn_type": txn_type,
-                "category": cat_val,
-                "bank_name": bank_val,
-                "account_number": "Monthly Ledger",
-                "account_type": "savings",
-            })
+            extracted.append(
+                {
+                    "date": date_str,
+                    "description": full_description,
+                    "merchant": merchant_clean if merchant_clean else "Unknown",
+                    "amount": amount,
+                    "txn_type": txn_type,
+                    "category": cat_val,
+                    "bank_name": bank_val,
+                    "account_number": "Monthly Ledger",
+                    "account_type": "savings",
+                }
+            )
 
-        logger.info(f"Successfully extracted {len(extracted)} transactions from Excel with headers: Date, Type, Category, Party, Description, Amount.")
+        logger.info(
+            f"Successfully extracted {len(extracted)} transactions from Excel with headers: Date, Type, Category, Party, Description, Amount."
+        )
         write_to_file(extracted, file_name)
         return {"extracted_transactions": extracted}
 
@@ -601,6 +634,7 @@ def extract_pdf_text_node(state: UnifiedIngestionState) -> dict:
     logger.info(f"Found {len(chunks)} chunks in {state['file_path']}")
     return {"raw_text_chunk": chunks}
 
+
 @logtime
 def get_database_grounding_context(user_id: str, statement_type: str = "bank_statement") -> dict:
     """Extracts a lightweight snapshot of the user's categories, accounts, or portfolio holdings."""
@@ -612,7 +646,7 @@ def get_database_grounding_context(user_id: str, statement_type: str = "bank_sta
                 f"{a.account_name} ({a.account_number_masked})"
                 for a in db.query(Account).filter_by(user_id=user_id, account_type="demat").all()
             ]
-            
+
             # 2. Existing Holdings & Sectors from Portfolio
             holdings = (
                 db.query(PortfolioHolding.symbol, PortfolioHolding.sector, PortfolioHolding.asset_class)
@@ -654,6 +688,7 @@ def get_database_grounding_context(user_id: str, statement_type: str = "bank_sta
     finally:
         db.close()
 
+
 @logtime
 def parse_transactions_with_ollama_node(state: UnifiedIngestionState) -> dict:
     """"""
@@ -673,10 +708,12 @@ def parse_transactions_with_ollama_node(state: UnifiedIngestionState) -> dict:
         raise InvalidDocumentUploadError()
 
     grounding = get_database_grounding_context(state["user_id"], statement_type)
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        ("human", human_prompt),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system_prompt),
+            ("human", human_prompt),
+        ]
+    )
     chain = prompt | llm
 
     for i in state["raw_text_chunk"]:
@@ -751,7 +788,7 @@ def parse_bank_statement_node(state: UnifiedIngestionState) -> dict:
                 "bank_name": bank_name,
                 "account_number": account_number,
                 "account_type": account_type,
-                "is_duplicated": is_duplicated
+                "is_duplicated": is_duplicated,
             }
             data.append(stged_txn)
             try:
@@ -777,6 +814,7 @@ def parse_bank_statement_node(state: UnifiedIngestionState) -> dict:
             except Exception as e:
                 db.rollback()
                 import traceback
+
                 logger.error(f"Failed to Save Staged Transaction {e}: {traceback.format_exc()}")
                 raise e
         sync_run.status = "completed"
@@ -794,7 +832,7 @@ def parse_bank_statement_node(state: UnifiedIngestionState) -> dict:
 
 
 @logtime
-def parse_demat_statement_graph(state: UnifiedIngestionState) -> List[StagedTransaction]:
+def parse_demat_statement_graph(state: UnifiedIngestionState) -> list[StagedTransaction]:
     """This Statement Parses Data from demat statement graph"""
     data = []
     db = SessionLocal()
@@ -843,7 +881,7 @@ def parse_demat_statement_graph(state: UnifiedIngestionState) -> List[StagedTran
                 current_price=current_price,
                 account_number=account_number,
                 broker=broker,
-                llm_raw_output=json.dumps(state["extracted_transactions"])
+                llm_raw_output=json.dumps(state["extracted_transactions"]),
             )
             db.add(new_holding)
             db.flush()
@@ -889,7 +927,7 @@ def create_unified_ingestion_graph():
         {
             "pdf_branch": "extract_pdf",
             "excel_branch": "extract_excel",
-        }
+        },
     )
 
     # 3. Connect PDF extractor to Ollama parser
@@ -902,7 +940,7 @@ def create_unified_ingestion_graph():
         {
             "bank_branch": "stage_bank",
             "demat_branch": "stage_demat",
-        }
+        },
     )
     workflow.add_conditional_edges(
         "extract_excel",
@@ -910,7 +948,7 @@ def create_unified_ingestion_graph():
         {
             "bank_branch": "stage_bank",
             "demat_branch": "stage_demat",
-        }
+        },
     )
 
     # 5. Connect staging nodes to END
@@ -921,18 +959,19 @@ def create_unified_ingestion_graph():
     return workflow.compile()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     from src.config import settings
+
     app = create_unified_ingestion_graph()
-    
+
     # Process all available statements from configured directory
     stmt_dir = settings.FINANCIAL_STATEMENTS_DIR
     drive_ledger = settings.GOOGLE_DRIVE_LEDGER_PATH
-    
+
     file_paths = {}
     if os.path.exists(drive_ledger):
         file_paths[drive_ledger] = "bank_statement"
-        
+
     if os.path.exists(stmt_dir):
         for f in os.listdir(stmt_dir):
             if f.lower().endswith(".pdf"):

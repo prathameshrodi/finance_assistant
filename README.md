@@ -48,32 +48,38 @@ A sovereign, local-first personal finance platform powered by **Local Ollama AI 
 ### 1. Prerequisites
 - Python 3.11+
 - Node.js 18+
-- [Ollama](https://ollama.com/) with model installed:
-  ```bash
-  ollama run llama3.2:3b
-  ```
+- [Ollama](https://ollama.com/) with model: `ollama run llama3.2:3b`
 
-### 2. Start Backend
+---
+
+### 2. ⚡ 1-Click Automated Setup
+Run the setup script for your OS (installs dependencies, configures `.env`, and initializes DB):
+- **Windows**: Double-click `setup.bat` or run `python setup.py`
+- **macOS / Linux**: `chmod +x setup.sh && ./setup.sh`
+
+---
+
+### 3. Run in Production Mode
 ```bash
-# In terminal 1:
-cd backend
-python -m venv .venv
-.venv\Scripts\activate      # On macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-python init_db.py
+# Builds Next.js production bundle & starts both Frontend + Backend concurrently:
+python run_production.py
 
-cd ..
-python run_backend.py
-# Backend live at http://localhost:8000 (API docs: http://localhost:8000/docs)
+# Or on Windows, double-click:
+run_production.bat
 ```
+- **Dashboard**: `http://praths-pc.tail2bb261.ts.net:3000`
+- **Backend API**: `http://praths-pc.tail2bb261.ts.net:8000`
+- **WebSocket Pipe**: `ws://praths-pc.tail2bb261.ts.net:8000/ws`
 
-### 3. Start Frontend
+---
+
+### 3. Or Run in Development Mode
 ```bash
-# In terminal 2:
-cd frontend
-npm install
-npm run dev
-# Dashboard live at http://localhost:3000
+# Terminal 1 (Backend):
+python run_backend.py
+
+# Terminal 2 (Frontend):
+cd frontend && npm run dev
 ```
 
 > 💡 *For detailed environment variable configuration, statement ingestion methods, and troubleshooting, see the **[setup.md](file:///d:/Work/ai_finance_assistant/setup.md)** guide.*

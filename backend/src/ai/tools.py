@@ -1,10 +1,13 @@
-from datetime import datetime
 import json
+import logging
+from datetime import datetime
+
+from langchain_core.tools import tool
+
 from src.database import SessionLocal
 from src.models import User
-from src.repositories import LedgerRepository, PortfolioRepository, MarketRepository
-from langchain_core.tools import tool
-import logging
+from src.repositories import LedgerRepository, MarketRepository, PortfolioRepository
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,18 +23,22 @@ def get_spend_analysis(start_date: str, end_date: str):
         spending = ledger.get_spending_by_category(start_date_new, end_date_new)
         burn = ledger.get_monthly_burn_rate(start_date_new.year, end_date_new.month)
 
-        return json.dumps({
-            "start_date": start_date,
-            "end_date": end_date,
-            "category_spending": spending,
-            "monthly_burn_metrics": burn,
-            "monthly_salary": user.monthly_salary
-        })
+        return json.dumps(
+            {
+                "start_date": start_date,
+                "end_date": end_date,
+                "category_spending": spending,
+                "monthly_burn_metrics": burn,
+                "monthly_salary": user.monthly_salary,
+            }
+        )
     except Exception as e:
         logger.error(f"Failed to get Spend Analysis : {e}")
         raise Exception(e)
     finally:
         db.close()
+
+
 @tool
 def get_portfolio_analysis():
     """get current holdings, total net worth, asset allocation weights, and XIRR"""
@@ -50,18 +57,22 @@ def get_portfolio_analysis():
         total_cost = sum(h["cost_basis"] for h in holdings)
         total_pnl = round(total_val - total_cost, 2)
 
-        return json.dumps({
-            "total_portfolio_value": total_val,
-            "total_invested_cost": total_cost,
-            "unrealized_pnl": total_pnl,
-            "holdings": holdings,
-            "asset_allocation": allocation
-        }, indent=2)
+        return json.dumps(
+            {
+                "total_portfolio_value": total_val,
+                "total_invested_cost": total_cost,
+                "unrealized_pnl": total_pnl,
+                "holdings": holdings,
+                "asset_allocation": allocation,
+            },
+            indent=2,
+        )
     except Exception as e:
         logger.error(f"Failed to get Portfolio Analysis : {e}")
         raise Exception(e)
     finally:
         db.close()
+
 
 @tool
 def get_stock_opportunities():
@@ -77,22 +88,24 @@ def get_stock_opportunities():
         opps = repo.get_active_opportunities()
         watchlist = repo.get_watchlist_with_prices()
 
-        return json.dumps({
-            "active_opportunities": [
-                {
-                    "symbol": o.symbol,
-                    "signal_type": o.signal_type,
-                    "current_price": o.current_price,
-                    "target_price": o.target_price,
-                    "thesis": o.thesis
-                }
-                for o in opps
-            ],
-            "watchlist": watchlist
-        }, indent=2)
+        return json.dumps(
+            {
+                "active_opportunities": [
+                    {
+                        "symbol": o.symbol,
+                        "signal_type": o.signal_type,
+                        "current_price": o.current_price,
+                        "target_price": o.target_price,
+                        "thesis": o.thesis,
+                    }
+                    for o in opps
+                ],
+                "watchlist": watchlist,
+            },
+            indent=2,
+        )
     except Exception as e:
         logger.error(f"Failed to get Stock Opportunities Analysis : {e}")
         raise Exception(e)
     finally:
         db.close()
-

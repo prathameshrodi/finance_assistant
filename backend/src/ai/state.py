@@ -1,5 +1,4 @@
-from typing import Dict, Any
-from typing import TypedDict, List, Annotated, Literal, Optional
+from typing import Annotated, Any, Literal, TypedDict
 
 from langgraph.graph.message import add_messages
 
@@ -7,13 +6,8 @@ from langgraph.graph.message import add_messages
 class FinancialAgentState(TypedDict):
     messages: Annotated[list, add_messages]
     user_id: str
-    next_step: Literal[
-        "spend_agent",
-        "portfolio_agent",
-        "market_agent",
-        "FINISH"
-    ]
-    evidence_records: List[str]
+    next_step: Literal["spend_agent", "portfolio_agent", "market_agent", "FINISH"]
+    evidence_records: list[str]
 
 
 class UnifiedIngestionState(TypedDict, total=False):
@@ -22,14 +16,14 @@ class UnifiedIngestionState(TypedDict, total=False):
     account_id: str
     user_id: str
     batch_id: str
-    raw_text_chunk: List[str]
-    extracted_transactions: List[Dict[str, Any]]
-    extracted_holdings: List[Dict[str, Any]]
-    staged_transactions: List[Dict[str, Any]]
-    staged_holdings: List[Dict[str, Any]]
+    raw_text_chunk: list[str]
+    extracted_transactions: list[dict[str, Any]]
+    extracted_holdings: list[dict[str, Any]]
+    staged_transactions: list[dict[str, Any]]
+    staged_holdings: list[dict[str, Any]]
     staged_count: int
     duplicates_count: int
-    errors: List[str]
+    errors: list[str]
     skip_staging: bool
     committed_count: int
 
@@ -43,15 +37,15 @@ class ReviewedItem(TypedDict):
 
 class PromotionState(TypedDict):
     user_id: str
-    reviewed_items: List[ReviewedItem]
+    reviewed_items: list[ReviewedItem]
     promoted_transactions_count: int
     discarded_transactions_count: int
-    created_custom_categories: List[str]
+    created_custom_categories: list[str]
 
 
 class MarketScannerState(TypedDict):
     user_id: str
-    watchlist_symbols: List[str]
+    watchlist_symbols: list[str]
     available_surplus_cash: float
-    underweight_sectors: List[str]
-    discovered_opportunities: List[Dict[str, Any]]
+    underweight_sectors: list[str]
+    discovered_opportunities: list[dict[str, Any]]

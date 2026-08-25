@@ -1,25 +1,25 @@
-from src.models.user import User
-from src.models.accounts import Institution, Account
+from src.models.accounts import Account, Institution
+from src.models.advisor import AdvisorSession, EvidenceQuery, FinAuditLog
 from src.models.categories import Category, Merchant
-from src.models.transactions import (
-    SyncRun,
-    EmailSource,
-    Attachment,
-    StagedTransaction,
-    Transaction,
-    TransactionFingerprintSource,
-    Correction,
-)
 from src.models.planning import Budget, Goal
 from src.models.portfolio import (
+    InvestmentOpportunity,
+    MarketPriceCache,
     PortfolioHolding,
     StagedHolding,
-    MarketPriceCache,
     Watchlist,
     WatchlistItem,
-    InvestmentOpportunity,
 )
-from src.models.advisor import AdvisorSession, EvidenceQuery, FinAuditLog
+from src.models.transactions import (
+    Attachment,
+    Correction,
+    EmailSource,
+    StagedTransaction,
+    SyncRun,
+    Transaction,
+    TransactionFingerprintSource,
+)
+from src.models.user import User
 
 __all__ = [
     "User",

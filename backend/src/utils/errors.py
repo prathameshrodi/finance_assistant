@@ -1,3 +1,2 @@
-
 class InvalidDocumentUploadError(Exception):
     pass

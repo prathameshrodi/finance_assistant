@@ -1,38 +1,40 @@
-from datetime import date
 import calendar
-from typing import List
+from datetime import date
+
 from sqlalchemy import func
-from src.models import Transaction, Category
+
+from src.models import Category, Transaction
 from src.repositories.base import BaseRepository
 from src.utils.log_functions import logtime
 
 
 class LedgerRepository(BaseRepository):
     @logtime
-    def get_spending_by_category(self, start_date: date, end_date: date) -> List[dict]:
+    def get_spending_by_category(self, start_date: date, end_date: date) -> list[dict]:
         """
 
         :param start_date:
         :param end_date:
         :return:
         """
-        spending = self.db.query(
-            Category.name.label("category"),
-            Category.icon.label("icon"),
-            func.sum(Transaction.amount).label("total_spent"),
-            func.count(Transaction.id).label("txn_count")
-        ).join(
-            Category, Transaction.category_id == Category.id
-        ).filter(
-            Transaction.transaction_date >= start_date,
-            Transaction.transaction_date <= end_date,
-            Transaction.user_id == self.user_id,
-            Transaction.txn_type == "debit"
-        ).group_by(
-            Category.name, Category.icon
-        ).order_by(
-            func.sum(Transaction.amount).desc()
-        ).all()
+        spending = (
+            self.db.query(
+                Category.name.label("category"),
+                Category.icon.label("icon"),
+                func.sum(Transaction.amount).label("total_spent"),
+                func.count(Transaction.id).label("txn_count"),
+            )
+            .join(Category, Transaction.category_id == Category.id)
+            .filter(
+                Transaction.transaction_date >= start_date,
+                Transaction.transaction_date <= end_date,
+                Transaction.user_id == self.user_id,
+                Transaction.txn_type == "debit",
+            )
+            .group_by(Category.name, Category.icon)
+            .order_by(func.sum(Transaction.amount).desc())
+            .all()
+        )
         return [
             {
                 "category": row.category,
@@ -55,15 +57,16 @@ class LedgerRepository(BaseRepository):
         start_date = date(year, month, 1)
         end_date = date(year, month, num_days_in_month)
 
-        result = self.db.query(
-            func.sum(Transaction.amount).label("total"),
-            func.count(Transaction.id).label("count")
-        ).filter(
-            Transaction.user_id == self.user_id,
-            Transaction.transaction_date >= start_date,
-            Transaction.transaction_date <= end_date,
-            Transaction.txn_type == "debit"
-        ).first()
+        result = (
+            self.db.query(func.sum(Transaction.amount).label("total"), func.count(Transaction.id).label("count"))
+            .filter(
+                Transaction.user_id == self.user_id,
+                Transaction.transaction_date >= start_date,
+                Transaction.transaction_date <= end_date,
+                Transaction.txn_type == "debit",
+            )
+            .first()
+        )
         today = date.today()
         if year == today.year and month == today.month:
             days_elapsed = max(today.day, 1)
@@ -78,6 +81,7 @@ class LedgerRepository(BaseRepository):
             "year": year,
             "month": month,
             "total_spent": total_spent,
+            "txn_count": txn_count,
             "transaction_count": txn_count,
             "days_elapsed": days_elapsed,
             "days_in_month": num_days_in_month,
@@ -86,7 +90,7 @@ class LedgerRepository(BaseRepository):
         }
 
     @logtime
-    def get_recent_transactions(self, limit: int = 10) -> List[Transaction]:
+    def get_recent_transactions(self, limit: int = 10) -> list[Transaction]:
         """
 
         :param limit:

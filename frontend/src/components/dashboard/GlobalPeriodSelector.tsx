@@ -1,17 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { Calendar, ChevronDown, Check, ArrowRight, RotateCcw } from "lucide-react";
+import { Calendar, ChevronDown, ArrowRight, RotateCcw, RefreshCw } from "lucide-react";
 import { DashboardPeriod } from "@/lib/types";
 
 interface GlobalPeriodSelectorProps {
   currentPeriod?: DashboardPeriod;
   onSelectPeriod: (options: { year?: number; month?: number; date_from?: string; date_to?: string }) => void;
+  onTriggerSync?: () => void;
+  syncStatus?: { step?: string; message?: string; last_sync?: string };
 }
 
 export function GlobalPeriodSelector({
   currentPeriod,
   onSelectPeriod,
+  onTriggerSync,
+  syncStatus,
 }: GlobalPeriodSelectorProps) {
   const today = new Date();
   const currentYear = today.getFullYear();

@@ -11,5 +11,5 @@ from src.config import settings
 
 if __name__ == "__main__":
     print(f"Starting {settings.APP_NAME} on http://{settings.HOST}:{settings.PORT}")
-    print(f"WebSocket Pipe active on ws://localhost:{settings.PORT}/ws")
+    print(f"WebSocket Pipe active on ws://praths-pc.tail2bb261.ts.net:{settings.PORT}/ws")
     uvicorn.run("src.main:app", host=settings.HOST, port=settings.PORT, reload=settings.DEBUG, app_dir=backend_dir)

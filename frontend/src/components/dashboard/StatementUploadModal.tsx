@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Upload, X, FileText, Zap, ShieldCheck } from "lucide-react";
+import { Upload, X, FileText, Zap } from "lucide-react";
 
 interface StatementUploadModalProps {
   isOpen: boolean;

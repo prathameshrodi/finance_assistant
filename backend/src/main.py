@@ -5,35 +5,36 @@ import json
 import logging
 import os
 import shutil
+import sys
 import uuid
-from datetime import datetime, date, timedelta
-from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException
+from datetime import date, datetime, timedelta
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import func
+
 from src.config import settings
-from src.database import init_db, SessionLocal
+from src.database import SessionLocal, init_db
 from src.models import (
-    User,
-    Institution,
     Account,
     Category,
-    Transaction,
-    StagedTransaction,
-    StagedHolding,
-    TransactionFingerprintSource,
-    PortfolioHolding,
+    Institution,
+    InvestmentOpportunity,
     MarketPriceCache,
+    PortfolioHolding,
+    StagedHolding,
+    StagedTransaction,
+    Transaction,
+    TransactionFingerprintSource,
+    User,
     Watchlist,
     WatchlistItem,
-    InvestmentOpportunity,
 )
 from src.repositories import (
     LedgerRepository,
-    PortfolioRepository,
     MarketRepository,
-    PlanningRepository,
+    PortfolioRepository,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -46,7 +47,13 @@ app = FastAPI(title=settings.APP_NAME, debug=settings.DEBUG)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "*"],
+    allow_origins=[
+        "http://praths-pc.tail2bb261.ts.net:3000",
+        "https://praths-pc.tail2bb261.ts.net:3000",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "*",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -60,13 +67,15 @@ async def on_startup():
     logger.info(f"Financial Statements Directory: {STATEMENTS_DIR}")
 
     # Launch Background Workers
-    from src.services import start_market_sync_background_task, start_drive_sync_background_task
+    from src.services import start_market_sync_background_task
+
     asyncio.create_task(start_market_sync_background_task())
     # asyncio.create_task(start_drive_sync_background_task())
     logger.info("Background Sync Workers (Market Quotes & Google Drive Watcher) Started.")
 
 
-@app.get("/")
+@app.get("/api/v1/health")
+@app.get("/api/health")
 def health_check():
     return {
         "status": "online",
@@ -74,14 +83,425 @@ def health_check():
         "environment": settings.ENVIRONMENT,
         "database": settings.DATABASE_URL,
         "ollama_model": settings.OLLAMA_MODEL,
-        "websocket_url": "ws://localhost:8000/ws",
+        "websocket_url": "ws://praths-pc.tail2bb261.ts.net:8000/ws",
         "statements_dir": STATEMENTS_DIR,
     }
 
 
 # =========================================================
+# 🌟 FIRST-TIME ONBOARDING & SETUP ENDPOINTS
+# =========================================================
+
+
+class OnboardingPayload(BaseModel):
+    name: str
+    email: str | None = None
+    monthly_salary: float
+    base_currency: str = "INR"
+    bank_name: str | None = "Primary Bank"
+    account_number: str | None = "XXXX"
+    initial_balance: float | None = 0.0
+    demat_broker: str | None = None
+    financial_goal: str | None = "Wealth Accumulation"
+    risk_tolerance: str | None = "Moderate"
+    savings_target_pct: float | None = 30.0
+
+
+@app.get("/api/v1/onboarding/status")
+def get_onboarding_status():
+    """Checks whether the primary user has completed initial profile onboarding."""
+    db = SessionLocal()
+    try:
+        user = db.query(User).first()
+        if not user:
+            return {"is_onboarded": False, "user": None}
+        is_default = user.name in ["Primary Investor", "Local Investor", "Default User"] or not user.monthly_salary
+        return {
+            "is_onboarded": not is_default,
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "email": user.email,
+                "monthly_salary": user.monthly_salary,
+                "base_currency": user.base_currency,
+            },
+        }
+    finally:
+        db.close()
+
+
+@app.post("/api/v1/onboarding/complete")
+def complete_onboarding(payload: OnboardingPayload):
+    """Saves user onboarding profile, seeds primary bank account, and initializes budget envelope."""
+    db = SessionLocal()
+    try:
+        user = db.query(User).first()
+        if not user:
+            user = User(
+                id=str(uuid.uuid4()),
+                email=payload.email or "user@local.finance",
+                name=payload.name,
+                monthly_salary=payload.monthly_salary,
+                base_currency=payload.base_currency,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        else:
+            user.name = payload.name.strip()
+            if payload.email:
+                user.email = payload.email.strip()
+            user.monthly_salary = payload.monthly_salary
+            user.base_currency = payload.base_currency.strip().upper()
+            db.commit()
+
+        # Seed Bank Account & Institution
+        if payload.bank_name:
+            inst = db.query(Institution).filter_by(user_id=user.id, name=payload.bank_name).first()
+            if not inst:
+                inst = Institution(
+                    id=str(uuid.uuid4()), user_id=user.id, name=payload.bank_name, institution_type="bank"
+                )
+                db.add(inst)
+                db.commit()
+                db.refresh(inst)
+
+            acc = db.query(Account).filter_by(user_id=user.id, institution_id=inst.id).first()
+            if not acc:
+                acc = Account(
+                    id=str(uuid.uuid4()),
+                    user_id=user.id,
+                    institution_id=inst.id,
+                    account_name=f"{payload.bank_name} Account",
+                    account_number_masked=payload.account_number or "Primary",
+                    account_type="checking",
+                    currency=payload.base_currency,
+                    current_balance=payload.initial_balance or 0.0,
+                )
+                db.add(acc)
+                db.commit()
+                db.refresh(acc)
+
+                # If initial balance provided and no transactions exist, record starting balance transaction
+                if payload.initial_balance and payload.initial_balance > 0:
+                    cat = db.query(Category).filter_by(name="Income").first() or db.query(Category).first()
+                    opening_txn = Transaction(
+                        id=str(uuid.uuid4()),
+                        user_id=user.id,
+                        account_id=acc.id,
+                        category_id=cat.id if cat else "default-cat",
+                        amount=payload.initial_balance,
+                        txn_type="credit",
+                        description="Opening Balance (Setup Wizard)",
+                        transaction_date=date.today(),
+                    )
+                    db.add(opening_txn)
+                    db.commit()
+
+        # Seed Demat Broker if provided
+        if payload.demat_broker:
+            broker_inst = db.query(Institution).filter_by(user_id=user.id, name=payload.demat_broker).first()
+            if not broker_inst:
+                broker_inst = Institution(
+                    id=str(uuid.uuid4()), user_id=user.id, name=payload.demat_broker, institution_type="broker"
+                )
+                db.add(broker_inst)
+                db.commit()
+                db.refresh(broker_inst)
+
+            demat_acc = db.query(Account).filter_by(user_id=user.id, institution_id=broker_inst.id).first()
+            if not demat_acc:
+                demat_acc = Account(
+                    id=str(uuid.uuid4()),
+                    user_id=user.id,
+                    institution_id=broker_inst.id,
+                    account_name=f"{payload.demat_broker} Demat",
+                    account_number_masked="Demat-1",
+                    account_type="demat",
+                    currency=payload.base_currency,
+                    current_balance=0.0,
+                )
+                db.add(demat_acc)
+                db.commit()
+
+        logger.info(f"✅ User onboarding completed for: {user.name} ({user.monthly_salary} {user.base_currency})")
+        return {
+            "status": "success",
+            "message": f"Welcome, {user.name}! Your financial profile and baseline are configured.",
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "email": user.email,
+                "monthly_salary": user.monthly_salary,
+                "base_currency": user.base_currency,
+            },
+        }
+    finally:
+        db.close()
+
+
+# =========================================================
+# ⚙️ SETTINGS & ACCOUNTS MANAGEMENT ENDPOINTS
+# =========================================================
+
+
+class SystemConfigPayload(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    monthly_salary: float | None = None
+    base_currency: str | None = "INR"
+    google_drive_ledger_path: str | None = None
+    models_dir: str | None = None
+    statements_dir: str | None = None
+    ollama_base_url: str | None = None
+    ollama_copilot_model: str | None = None
+    auto_sync_enabled: bool | None = True
+
+
+class AccountCreateOrUpdatePayload(BaseModel):
+    id: str | None = None
+    institution_name: str
+    account_name: str
+    account_number: str
+    type: str = "checking"  # checking, savings, investment, credit_card
+    currency: str = "INR"
+    current_balance: float = 0.0
+
+
+@app.get("/api/v1/settings/config")
+def get_system_config():
+    """Returns complete system configuration, user profile, and active file paths."""
+    db = SessionLocal()
+    try:
+        user = db.query(User).first()
+        from src.ai.llm_engine import detect_gpu
+
+        has_gpu = detect_gpu()
+
+        root_dir = getattr(sys, "_MEIPASS", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+        default_models_dir = os.path.join(root_dir, "models")
+        user_models_dir = os.path.join(os.path.expanduser("~"), ".finance_assistant", "models")
+        active_models_dir = default_models_dir if os.path.exists(default_models_dir) else user_models_dir
+
+        return {
+            "user": {
+                "id": user.id if user else None,
+                "name": user.name if user else "Primary Investor",
+                "email": user.email if user else "user@local.finance",
+                "monthly_salary": user.monthly_salary if user else 100000.0,
+                "base_currency": user.base_currency if user else "INR",
+            },
+            "paths": {
+                "google_drive_ledger_path": settings.GOOGLE_DRIVE_LEDGER_PATH,
+                "google_drive_ledger_exists": os.path.exists(settings.GOOGLE_DRIVE_LEDGER_PATH),
+                "models_dir": active_models_dir,
+                "models_dir_exists": os.path.exists(active_models_dir),
+                "statements_dir": settings.FINANCIAL_STATEMENTS_DIR,
+                "statements_dir_exists": os.path.exists(settings.FINANCIAL_STATEMENTS_DIR),
+                "temp_dir": settings.TEMP_DIR,
+                "database_url": settings.DATABASE_URL,
+            },
+            "ai": {
+                "ollama_base_url": settings.OLLAMA_BASE_URL,
+                "ollama_copilot_model": settings.OLLAMA_COPILOT_MODEL,
+                "ollama_fast_model": settings.OLLAMA_MODEL,
+                "gpu_detected": has_gpu,
+                "auto_sync_enabled": settings.AUTO_DRIVE_SYNC_ENABLED,
+            },
+        }
+    finally:
+        db.close()
+
+
+@app.post("/api/v1/settings/config")
+def update_system_config(payload: SystemConfigPayload):
+    """Updates user profile and system paths."""
+    db = SessionLocal()
+    try:
+        user = db.query(User).first()
+        if user:
+            if payload.name:
+                user.name = payload.name.strip()
+            if payload.email:
+                user.email = payload.email.strip()
+            if payload.monthly_salary is not None:
+                user.monthly_salary = payload.monthly_salary
+            if payload.base_currency:
+                user.base_currency = payload.base_currency.strip().upper()
+            db.commit()
+
+        # Update environment/settings in-memory
+        if payload.google_drive_ledger_path:
+            settings.GOOGLE_DRIVE_LEDGER_PATH = payload.google_drive_ledger_path.strip()
+        if payload.statements_dir:
+            settings.FINANCIAL_STATEMENTS_DIR = payload.statements_dir.strip()
+        if payload.ollama_base_url:
+            settings.OLLAMA_BASE_URL = payload.ollama_base_url.strip()
+        if payload.ollama_copilot_model:
+            settings.OLLAMA_COPILOT_MODEL = payload.ollama_copilot_model.strip()
+        if payload.auto_sync_enabled is not None:
+            settings.AUTO_DRIVE_SYNC_ENABLED = payload.auto_sync_enabled
+
+        logger.info("⚙️ System configuration successfully updated.")
+        return {"status": "success", "message": "Settings updated successfully."}
+    finally:
+        db.close()
+
+
+@app.get("/api/v1/settings/accounts")
+def get_user_accounts():
+    """Lists all user Bank and Demat accounts with live balances and institutions."""
+    db = SessionLocal()
+    try:
+        user = db.query(User).first()
+        if not user:
+            return {"accounts": []}
+
+        accounts = db.query(Account).filter_by(user_id=user.id).all()
+        result = []
+        for acc in accounts:
+            inst = db.query(Institution).filter_by(id=acc.institution_id).first()
+            result.append(
+                {
+                    "id": acc.id,
+                    "institution_name": inst.name if inst else "Self-Managed",
+                    "institution_type": inst.institution_type if inst else "bank",
+                    "account_name": acc.account_name,
+                    "account_number": acc.account_number_masked or "Primary",
+                    "type": acc.account_type,
+                    "currency": acc.currency or "INR",
+                    "current_balance": float(acc.current_balance or 0.0),
+                    "is_active": acc.is_active,
+                }
+            )
+        return {"accounts": result}
+    finally:
+        db.close()
+
+
+@app.post("/api/v1/settings/accounts")
+def create_or_update_account(payload: AccountCreateOrUpdatePayload):
+    """Creates a new Bank/Demat account or updates an existing one."""
+    db = SessionLocal()
+    try:
+        user = db.query(User).first()
+        if not user:
+            user = User(
+                id=str(uuid.uuid4()),
+                email="user@local.finance",
+                name="Primary Investor",
+                monthly_salary=100000.0,
+                base_currency="INR",
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+        # Find or create institution
+        inst_type = "broker" if payload.type in ["investment", "demat"] else "bank"
+        inst = db.query(Institution).filter_by(user_id=user.id, name=payload.institution_name.strip()).first()
+        if not inst:
+            inst = Institution(
+                id=str(uuid.uuid4()), user_id=user.id, name=payload.institution_name.strip(), institution_type=inst_type
+            )
+            db.add(inst)
+            db.commit()
+            db.refresh(inst)
+
+        if payload.id:
+            # Update existing
+            acc = db.query(Account).filter_by(id=payload.id, user_id=user.id).first()
+            if not acc:
+                raise HTTPException(status_code=404, detail="Account not found.")
+            acc.account_name = payload.account_name.strip()
+            acc.account_number_masked = payload.account_number.strip()
+            acc.account_type = payload.type
+            acc.currency = payload.currency.strip().upper()
+            acc.current_balance = payload.current_balance
+            acc.institution_id = inst.id
+            db.commit()
+            msg = f"Account {acc.account_name} updated."
+        else:
+            # Create new
+            acc = Account(
+                id=str(uuid.uuid4()),
+                user_id=user.id,
+                institution_id=inst.id,
+                account_name=payload.account_name.strip(),
+                account_number_masked=payload.account_number.strip(),
+                account_type=payload.type,
+                currency=payload.currency.strip().upper(),
+                current_balance=payload.current_balance,
+            )
+            db.add(acc)
+            db.commit()
+
+            # If opening balance is positive and no transactions, seed an opening balance credit
+            if payload.current_balance > 0:
+                cat = db.query(Category).filter_by(name="Income").first() or db.query(Category).first()
+                op_txn = Transaction(
+                    id=str(uuid.uuid4()),
+                    user_id=user.id,
+                    account_id=acc.id,
+                    category_id=cat.id if cat else "default-cat",
+                    amount=payload.current_balance,
+                    txn_type="credit",
+                    description=f"Opening Balance for {acc.account_name}",
+                    transaction_date=date.today(),
+                )
+                db.add(op_txn)
+                db.commit()
+            msg = f"Account {acc.account_name} created."
+
+        return {"status": "success", "message": msg}
+    finally:
+        db.close()
+
+
+@app.delete("/api/v1/settings/accounts/{account_id}")
+def delete_account(account_id: str):
+    """Deletes or deactivates an account."""
+    db = SessionLocal()
+    try:
+        user = db.query(User).first()
+        acc = db.query(Account).filter_by(id=account_id, user_id=user.id if user else None).first()
+        if not acc:
+            raise HTTPException(status_code=404, detail="Account not found.")
+        acc_name = acc.account_name
+        db.delete(acc)
+        db.commit()
+        return {"status": "success", "message": f"Account {acc_name} deleted."}
+    finally:
+        db.close()
+
+
+@app.post("/api/v1/settings/sync-ledger")
+def sync_daily_excel_ledger():
+    """Manually triggers synchronization with the configured Daily Excel Ledger file."""
+    excel_path = settings.GOOGLE_DRIVE_LEDGER_PATH
+    if not os.path.exists(excel_path):
+        return {
+            "status": "error",
+            "message": f"Excel file does not exist at: {excel_path}. Please check the path in Settings.",
+        }
+
+    try:
+        from src.services.drive_sync_worker import check_and_ingest_drive_ledger_once
+
+        check_and_ingest_drive_ledger_once()
+        return {
+            "status": "success",
+            "message": f"Excel ledger synchronized successfully from: {excel_path}",
+        }
+    except Exception as e:
+        logger.error(f"Manual ledger sync error: {e}")
+        return {"status": "error", "message": f"Sync failed: {str(e)}"}
+
+
+# =========================================================
 # STAGED TRANSACTIONS & HOLDINGS ENDPOINTS
 # =========================================================
+
 
 @app.get("/api/v1/staged-transactions")
 def get_staged_transactions():
@@ -123,41 +543,45 @@ def get_staged_transactions():
 
         bank_results = []
         for r in staged_rows:
-            bank_results.append({
-                "temp_id": r.id,
-                "staged_id": r.id,
-                "date": str(r.transaction_date),
-                "merchant": r.parsed_merchant or "Unknown",
-                "description": r.raw_description or r.parsed_merchant,
-                "amount": r.amount,
-                "txn_type": "debit" if r.amount > 0 else "credit",
-                "suggested_category": r.parsed_category or "Other Expenses",
-                "final_category": r.parsed_category or "Other Expenses",
-                "is_duplicate": bool(r.is_duplicated),
-                "user_action": "skip" if r.is_duplicated else "accept",
-                "bank_name": r.bank_name or "Unknown Bank",
-                "account_number": r.account_number or "Unknown A/C",
-                "account_type": r.account_type or "savings",
-                "created_at": r.created_at.strftime("%d %b %Y %H:%M"),
-            })
+            bank_results.append(
+                {
+                    "temp_id": r.id,
+                    "staged_id": r.id,
+                    "date": str(r.transaction_date),
+                    "merchant": r.parsed_merchant or "Unknown",
+                    "description": r.raw_description or r.parsed_merchant,
+                    "amount": r.amount,
+                    "txn_type": "debit" if r.amount > 0 else "credit",
+                    "suggested_category": r.parsed_category or "Other Expenses",
+                    "final_category": r.parsed_category or "Other Expenses",
+                    "is_duplicate": bool(r.is_duplicated),
+                    "user_action": "skip" if r.is_duplicated else "accept",
+                    "bank_name": r.bank_name or "Unknown Bank",
+                    "account_number": r.account_number or "Unknown A/C",
+                    "account_type": r.account_type or "savings",
+                    "created_at": r.created_at.strftime("%d %b %Y %H:%M"),
+                }
+            )
 
         demat_results = []
         for h in staged_holdings_rows:
-            demat_results.append({
-                "staged_id": h.id,
-                "symbol": h.symbol,
-                "exchange": h.exchange or "NSE",
-                "asset_class": h.asset_class or "equity",
-                "sector": h.sector or "General",
-                "quantity": h.quantity,
-                "avg_buy_price": h.avg_buy_price,
-                "current_price": h.current_price or h.avg_buy_price,
-                "broker": h.broker or "Brokerage Account",
-                "account_number": h.account_number or "Demat A/C",
-                "is_duplicate": bool(h.is_duplicate),
-                "user_action": "accept",
-                "created_at": h.created_at.strftime("%d %b %Y %H:%M"),
-            })
+            demat_results.append(
+                {
+                    "staged_id": h.id,
+                    "symbol": h.symbol,
+                    "exchange": h.exchange or "NSE",
+                    "asset_class": h.asset_class or "equity",
+                    "sector": h.sector or "General",
+                    "quantity": h.quantity,
+                    "avg_buy_price": h.avg_buy_price,
+                    "current_price": h.current_price or h.avg_buy_price,
+                    "broker": h.broker or "Brokerage Account",
+                    "account_number": h.account_number or "Demat A/C",
+                    "is_duplicate": bool(h.is_duplicate),
+                    "user_action": "accept",
+                    "created_at": h.created_at.strftime("%d %b %Y %H:%M"),
+                }
+            )
 
         return {
             "staged_transactions": bank_results,
@@ -170,38 +594,38 @@ def get_staged_transactions():
 
 
 class ConfirmBankItem(BaseModel):
-    temp_id: Optional[str] = None
-    staged_id: Optional[str] = None
+    temp_id: str | None = None
+    staged_id: str | None = None
     user_action: str = "accept"  # "accept" or "skip"
     final_category: str = "Other Expenses"
-    date: Optional[str] = None
-    merchant: Optional[str] = None
-    amount: Optional[float] = None
-    description: Optional[str] = None
-    txn_type: Optional[str] = "debit"
-    bank_name: Optional[str] = None
-    account_number: Optional[str] = None
-    account_type: Optional[str] = "savings"
+    date: str | None = None
+    merchant: str | None = None
+    amount: float | None = None
+    description: str | None = None
+    txn_type: str | None = "debit"
+    bank_name: str | None = None
+    account_number: str | None = None
+    account_type: str | None = "savings"
 
 
 class ConfirmHoldingItem(BaseModel):
     staged_id: str
     user_action: str = "accept"  # "accept" or "skip"
     symbol: str
-    exchange: Optional[str] = "NSE"
-    asset_class: Optional[str] = "equity"
-    sector: Optional[str] = "General"
+    exchange: str | None = "NSE"
+    asset_class: str | None = "equity"
+    sector: str | None = "General"
     quantity: float
     avg_buy_price: float
-    current_price: Optional[float] = None
-    broker: Optional[str] = None
-    account_number: Optional[str] = None
+    current_price: float | None = None
+    broker: str | None = None
+    account_number: str | None = None
 
 
 class UnifiedConfirmRequest(BaseModel):
-    thread_id: Optional[str] = None
-    reviewed_transactions: Optional[List[ConfirmBankItem]] = []
-    reviewed_holdings: Optional[List[ConfirmHoldingItem]] = []
+    thread_id: str | None = None
+    reviewed_transactions: list[ConfirmBankItem] | None = []
+    reviewed_holdings: list[ConfirmHoldingItem] | None = []
 
 
 @app.post("/api/v1/confirm-staged-transactions")
@@ -253,10 +677,14 @@ def confirm_staged_transactions(req: UnifiedConfirmRequest):
             ).lower()
 
             # Find or Create Institution (Zero Duplicates)
-            inst = db.query(Institution).filter(
-                Institution.user_id == user.id,
-                func.lower(Institution.name) == bank_name.lower(),
-            ).first()
+            inst = (
+                db.query(Institution)
+                .filter(
+                    Institution.user_id == user.id,
+                    func.lower(Institution.name) == bank_name.lower(),
+                )
+                .first()
+            )
             if not inst:
                 inst = Institution(
                     id=str(uuid.uuid4()),
@@ -270,11 +698,15 @@ def confirm_staged_transactions(req: UnifiedConfirmRequest):
                 db.flush()
 
             # Find or Create Account (Zero Duplicates)
-            acc = db.query(Account).filter(
-                Account.user_id == user.id,
-                Account.institution_id == inst.id,
-                (Account.account_number_masked == acc_num) | (Account.account_name == f"{bank_name} ({acc_num})"),
-            ).first()
+            acc = (
+                db.query(Account)
+                .filter(
+                    Account.user_id == user.id,
+                    Account.institution_id == inst.id,
+                    (Account.account_number_masked == acc_num) | (Account.account_name == f"{bank_name} ({acc_num})"),
+                )
+                .first()
+            )
             if not acc:
                 acc = Account(
                     id=str(uuid.uuid4()),
@@ -325,7 +757,7 @@ def confirm_staged_transactions(req: UnifiedConfirmRequest):
                 or "balance" in txn_merchant.lower()
                 or "cleared balance" in txn_desc.lower()
             )
-            
+
             if is_balance_record:
                 txn_type = "balance"
                 # Update Account's official Balance Snapshot for this month!
@@ -399,9 +831,7 @@ def confirm_staged_transactions(req: UnifiedConfirmRequest):
                 continue
 
             broker_name = (
-                (staged_h.broker if staged_h and staged_h.broker else None)
-                or h_item.broker
-                or "Zerodha"
+                (staged_h.broker if staged_h and staged_h.broker else None) or h_item.broker or "Zerodha"
             ).strip()
             demat_acc_num = (
                 (staged_h.account_number if staged_h and staged_h.account_number else None)
@@ -410,10 +840,14 @@ def confirm_staged_transactions(req: UnifiedConfirmRequest):
             ).strip()
 
             # Find or Create Broker Institution
-            broker_inst = db.query(Institution).filter(
-                Institution.user_id == user.id,
-                func.lower(Institution.name) == broker_name.lower(),
-            ).first()
+            broker_inst = (
+                db.query(Institution)
+                .filter(
+                    Institution.user_id == user.id,
+                    func.lower(Institution.name) == broker_name.lower(),
+                )
+                .first()
+            )
             if not broker_inst:
                 broker_inst = Institution(
                     id=str(uuid.uuid4()),
@@ -427,11 +861,15 @@ def confirm_staged_transactions(req: UnifiedConfirmRequest):
                 db.flush()
 
             # Find or Create Demat Account
-            demat_acc = db.query(Account).filter(
-                Account.user_id == user.id,
-                Account.institution_id == broker_inst.id,
-                Account.account_type == "demat",
-            ).first()
+            demat_acc = (
+                db.query(Account)
+                .filter(
+                    Account.user_id == user.id,
+                    Account.institution_id == broker_inst.id,
+                    Account.account_type == "demat",
+                )
+                .first()
+            )
             if not demat_acc:
                 demat_acc = Account(
                     id=str(uuid.uuid4()),
@@ -450,11 +888,15 @@ def confirm_staged_transactions(req: UnifiedConfirmRequest):
             # Insert or Update PortfolioHolding (Zero Duplicates)
             sym = h_item.symbol.upper().strip()
             exch = (h_item.exchange or "NSE").upper().strip()
-            existing_holding = db.query(PortfolioHolding).filter(
-                PortfolioHolding.user_id == user.id,
-                PortfolioHolding.symbol == sym,
-                PortfolioHolding.exchange == exch,
-            ).first()
+            existing_holding = (
+                db.query(PortfolioHolding)
+                .filter(
+                    PortfolioHolding.user_id == user.id,
+                    PortfolioHolding.symbol == sym,
+                    PortfolioHolding.exchange == exch,
+                )
+                .first()
+            )
 
             if existing_holding:
                 existing_holding.quantity = h_item.quantity
@@ -524,7 +966,7 @@ def confirm_statement_review_alias(req: UnifiedConfirmRequest):
 async def upload_statement(
     file: UploadFile = File(...),
     statement_type: str = Form("bank_statement"),
-    account_id: Optional[str] = Form(None),
+    account_id: str | None = Form(None),
     skip_staging: bool = Form(False),
 ):
     try:
@@ -552,20 +994,22 @@ async def upload_statement(
                 db.close()
 
                 statement_pipeline = create_unified_ingestion_graph()
-                ingestion_result = statement_pipeline.invoke({
-                    "file_path": saved_file_path,
-                    "statement_type": statement_type,
-                    "account_id": acc_id,
-                    "user_id": user_id,
-                    "batch_id": batch_id,
-                    "raw_text_chunk": [],
-                    "extracted_transactions": [],
-                    "extracted_holdings": [],
-                    "staged_count": 0,
-                    "duplicates_count": 0,
-                    "errors": [],
-                    "skip_staging": skip_staging,
-                })
+                ingestion_result = statement_pipeline.invoke(
+                    {
+                        "file_path": saved_file_path,
+                        "statement_type": statement_type,
+                        "account_id": acc_id,
+                        "user_id": user_id,
+                        "batch_id": batch_id,
+                        "raw_text_chunk": [],
+                        "extracted_transactions": [],
+                        "extracted_holdings": [],
+                        "staged_count": 0,
+                        "duplicates_count": 0,
+                        "errors": [],
+                        "skip_staging": skip_staging,
+                    }
+                )
 
                 staged_items = ingestion_result.get("staged_transactions", [])
                 staged_holdings = ingestion_result.get("staged_holdings", [])
@@ -611,41 +1055,45 @@ async def upload_statement(
 # FINANCIAL RECORDS CRUD API (TRANSACTIONS & HOLDINGS)
 # =========================================================
 
+
 class CreateTransactionDto(BaseModel):
     account_id: str
     category_id: str
     amount: float
     transaction_date: str
     description: str
-    txn_type: Optional[str] = "debit"
+    txn_type: str | None = "debit"
+
 
 class UpdateTransactionDto(BaseModel):
-    account_id: Optional[str] = None
-    category_id: Optional[str] = None
-    amount: Optional[float] = None
-    transaction_date: Optional[str] = None
-    description: Optional[str] = None
-    txn_type: Optional[str] = None
+    account_id: str | None = None
+    category_id: str | None = None
+    amount: float | None = None
+    transaction_date: str | None = None
+    description: str | None = None
+    txn_type: str | None = None
+
 
 class CreateHoldingDto(BaseModel):
     account_id: str
     symbol: str
-    exchange: Optional[str] = "NSE"
-    asset_class: Optional[str] = "equity"
-    sector: Optional[str] = "General"
+    exchange: str | None = "NSE"
+    asset_class: str | None = "equity"
+    sector: str | None = "General"
     quantity: float
     avg_buy_price: float
-    current_price: Optional[float] = None
+    current_price: float | None = None
+
 
 class UpdateHoldingDto(BaseModel):
-    account_id: Optional[str] = None
-    symbol: Optional[str] = None
-    exchange: Optional[str] = None
-    asset_class: Optional[str] = None
-    sector: Optional[str] = None
-    quantity: Optional[float] = None
-    avg_buy_price: Optional[float] = None
-    current_price: Optional[float] = None
+    account_id: str | None = None
+    symbol: str | None = None
+    exchange: str | None = None
+    asset_class: str | None = None
+    sector: str | None = None
+    quantity: float | None = None
+    avg_buy_price: float | None = None
+    current_price: float | None = None
 
 
 @app.get("/api/v1/ledger/meta")
@@ -656,7 +1104,7 @@ def get_ledger_metadata():
         user = db.query(User).first()
         if not user:
             return {"accounts": [], "categories": []}
-        
+
         accounts = db.query(Account).filter(Account.user_id == user.id).all()
         categories = db.query(Category).filter(Category.user_id == user.id).all()
 
@@ -706,18 +1154,20 @@ def list_transactions():
 
         results = []
         for t in txns:
-            results.append({
-                "id": t.id,
-                "date": str(t.transaction_date),
-                "description": t.description,
-                "amount": t.amount,
-                "txn_type": t.txn_type or "debit",
-                "category_id": t.category_id,
-                "category_name": categories_map.get(t.category_id, "Other Expenses"),
-                "account_id": t.account_id,
-                "account_name": accounts_map.get(t.account_id, "Primary Account"),
-                "created_at": t.created_at.strftime("%d %b %Y %H:%M") if t.created_at else "",
-            })
+            results.append(
+                {
+                    "id": t.id,
+                    "date": str(t.transaction_date),
+                    "description": t.description,
+                    "amount": t.amount,
+                    "txn_type": t.txn_type or "debit",
+                    "category_id": t.category_id,
+                    "category_name": categories_map.get(t.category_id, "Other Expenses"),
+                    "account_id": t.account_id,
+                    "account_name": accounts_map.get(t.account_id, "Primary Account"),
+                    "created_at": t.created_at.strftime("%d %b %Y %H:%M") if t.created_at else "",
+                }
+            )
 
         return {"transactions": results, "total": len(results)}
     finally:
@@ -795,6 +1245,8 @@ def update_transaction(txn_id: str, dto: UpdateTransactionDto):
         txn.updated_at = datetime.utcnow()
         db.commit()
         return {"status": "success", "message": "Transaction updated successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -816,6 +1268,8 @@ def delete_transaction(txn_id: str):
         db.delete(txn)
         db.commit()
         return {"status": "success", "message": "Transaction deleted"}
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -850,23 +1304,25 @@ def list_holdings():
             pnl_amount = round(cur_val - cost_basis, 2)
             pnl_pct = round((pnl_amount / cost_basis) * 100, 2) if cost_basis > 0 else 0.0
 
-            results.append({
-                "id": h.id,
-                "symbol": h.symbol,
-                "exchange": h.exchange or "NSE",
-                "asset_class": h.asset_class or "equity",
-                "sector": h.sector or "General",
-                "quantity": h.quantity,
-                "avg_buy_price": h.avg_buy_price,
-                "current_price": cur_price,
-                "current_value": cur_val,
-                "cost_basis": cost_basis,
-                "pnl_amount": pnl_amount,
-                "pnl_pct": pnl_pct,
-                "account_id": h.account_id,
-                "account_name": accounts_map.get(h.account_id, "Demat Account"),
-                "last_synced_at": h.last_synced_at.strftime("%d %b %Y %H:%M") if h.last_synced_at else "",
-            })
+            results.append(
+                {
+                    "id": h.id,
+                    "symbol": h.symbol,
+                    "exchange": h.exchange or "NSE",
+                    "asset_class": h.asset_class or "equity",
+                    "sector": h.sector or "General",
+                    "quantity": h.quantity,
+                    "avg_buy_price": h.avg_buy_price,
+                    "current_price": cur_price,
+                    "current_value": cur_val,
+                    "cost_basis": cost_basis,
+                    "pnl_amount": pnl_amount,
+                    "pnl_pct": pnl_pct,
+                    "account_id": h.account_id,
+                    "account_name": accounts_map.get(h.account_id, "Demat Account"),
+                    "last_synced_at": h.last_synced_at.strftime("%d %b %Y %H:%M") if h.last_synced_at else "",
+                }
+            )
 
         return {"holdings": results, "total": len(results)}
     finally:
@@ -945,11 +1401,15 @@ def update_holding(holding_id: str, dto: UpdateHoldingDto):
             if cache:
                 cache.current_price = dto.current_price
             else:
-                db.add(MarketPriceCache(symbol=holding.symbol, exchange=holding.exchange, current_price=dto.current_price))
+                db.add(
+                    MarketPriceCache(symbol=holding.symbol, exchange=holding.exchange, current_price=dto.current_price)
+                )
 
         holding.last_synced_at = datetime.utcnow()
         db.commit()
         return {"status": "success", "message": "Holding updated successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -969,6 +1429,8 @@ def delete_holding(holding_id: str):
         db.delete(holding)
         db.commit()
         return {"status": "success", "message": "Holding deleted successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -980,6 +1442,7 @@ def delete_holding(holding_id: str):
 def trigger_market_sync():
     """Triggers an immediate live market data synchronization for all portfolio holdings."""
     from src.services.market_sync_worker import sync_market_prices_once
+
     count = sync_market_prices_once()
     return {
         "status": "success",
@@ -992,16 +1455,17 @@ def trigger_market_sync():
 # WATCHLIST & 6-PILLAR STOCK ANALYSIS ENDPOINTS
 # =========================================================
 
+
 class AddWatchlistItemDto(BaseModel):
     symbol: str
-    exchange: Optional[str] = "NSE"
-    target_buy_price: Optional[float] = None
-    alert_notes: Optional[str] = None
+    exchange: str | None = "NSE"
+    target_buy_price: float | None = None
+    alert_notes: str | None = None
 
 
 class AnalyzeStockDto(BaseModel):
     symbol: str
-    exchange: Optional[str] = "NSE"
+    exchange: str | None = "NSE"
 
 
 @app.get("/api/v1/watchlist")
@@ -1029,31 +1493,35 @@ def get_watchlist():
             # Seed default blue-chips if empty
             default_symbols = ["TATAMOTORS", "INFY", "HDFCBANK", "NIFTYBEES"]
             for s in default_symbols:
-                db.add(WatchlistItem(
-                    id=str(uuid.uuid4()),
-                    watchlist_id=wl.id,
-                    symbol=s,
-                    exchange="NSE",
-                    created_at=datetime.utcnow(),
-                ))
+                db.add(
+                    WatchlistItem(
+                        id=str(uuid.uuid4()),
+                        watchlist_id=wl.id,
+                        symbol=s,
+                        exchange="NSE",
+                        created_at=datetime.utcnow(),
+                    )
+                )
             db.commit()
 
         items = db.query(WatchlistItem).filter_by(watchlist_id=wl.id).all()
         results = []
         for item in items:
             cache = db.query(MarketPriceCache).filter_by(symbol=item.symbol, exchange=item.exchange).first()
-            results.append({
-                "id": item.id,
-                "symbol": item.symbol,
-                "exchange": item.exchange,
-                "target_buy_price": item.target_buy_price,
-                "alert_notes": item.alert_notes,
-                "current_price": cache.current_price if cache else 1500.0,
-                "day_change_pct": cache.day_change_pct if cache else 0.0,
-                "rsi_14": cache.rsi_14 if cache else 48.0,
-                "pe_ratio": cache.pe_ratio if cache else 22.0,
-                "created_at": item.created_at.strftime("%d %b %Y") if item.created_at else "",
-            })
+            results.append(
+                {
+                    "id": item.id,
+                    "symbol": item.symbol,
+                    "exchange": item.exchange,
+                    "target_buy_price": item.target_buy_price,
+                    "alert_notes": item.alert_notes,
+                    "current_price": cache.current_price if cache else 1500.0,
+                    "day_change_pct": cache.day_change_pct if cache else 0.0,
+                    "rsi_14": cache.rsi_14 if cache else 48.0,
+                    "pe_ratio": cache.pe_ratio if cache else 22.0,
+                    "created_at": item.created_at.strftime("%d %b %Y") if item.created_at else "",
+                }
+            )
 
         return {"watchlist": results, "total": len(results)}
     finally:
@@ -1092,6 +1560,8 @@ def add_to_watchlist(dto: AddWatchlistItemDto):
         db.add(new_item)
         db.commit()
         return {"status": "success", "message": f"Added {sym} to Watchlist."}
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1111,6 +1581,8 @@ def remove_from_watchlist(item_id: str):
         db.delete(item)
         db.commit()
         return {"status": "success", "message": "Item removed from watchlist"}
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1122,6 +1594,7 @@ def remove_from_watchlist(item_id: str):
 def analyze_stock(dto: AnalyzeStockDto):
     """Executes the comprehensive 6-Pillar Deep Stock Analysis for any symbol."""
     from src.services.stock_analyzer_service import analyze_stock_deep
+
     db = SessionLocal()
     try:
         user = db.query(User).first()
@@ -1138,6 +1611,7 @@ def analyze_stock(dto: AnalyzeStockDto):
 def search_stocks(q: str = ""):
     """Searches worldwide ticker symbols, equities, ETFs, crypto and indices across global exchanges."""
     from src.services.stock_analyzer_service import search_global_tickers
+
     results = search_global_tickers(q)
     return {"status": "success", "query": q, "results": results, "total": len(results)}
 
@@ -1146,6 +1620,7 @@ def search_stocks(q: str = ""):
 def get_stock_news(symbol: str):
     """Fetches real-time RSS financial news feeds for any stock symbol."""
     from src.services.stock_analyzer_service import fetch_stock_rss_news
+
     news = fetch_stock_rss_news(symbol.upper())
     return {"status": "success", "symbol": symbol.upper(), "articles": news, "total": len(news)}
 
@@ -1154,10 +1629,12 @@ def get_stock_news(symbol: str):
 # FINANCIAL BEHAVIORAL & SPENDING ANALYTICS ENDPOINTS
 # =========================================================
 
+
 @app.get("/api/v1/analytics/behavioral")
 def get_behavioral_analytics():
     """Retrieves full spending behavior, trends, habits, and AI diagnostics."""
     from src.services.behavioral_analytics_service import compute_spending_and_behavioral_analytics
+
     db = SessionLocal()
     try:
         user = db.query(User).first()
@@ -1172,6 +1649,7 @@ def get_behavioral_analytics():
 def generate_behavioral_prognosis():
     """Triggers an AI synthesis of spending psychology and wealth trajectory."""
     from src.ai.behavioral_analysis_flow import generate_ai_behavioral_prognosis
+
     db = SessionLocal()
     try:
         user = db.query(User).first()
@@ -1194,6 +1672,7 @@ def trigger_opportunities_scan():
         # 1. Calculate user cash surplus
         today = date.today()
         from src.repositories import LedgerRepository
+
         ledger_repo = LedgerRepository(db, user.id)
         burn = ledger_repo.get_monthly_burn_rate(today.year, today.month)
         total_spent = burn.get("total_spent", 0.0)
@@ -1251,10 +1730,14 @@ def trigger_opportunities_scan():
         # 3. Upsert opportunities into SQLite
         discovered = []
         for item in scanner_universe:
-            opp = db.query(InvestmentOpportunity).filter_by(
-                user_id=user.id,
-                symbol=item["symbol"],
-            ).first()
+            opp = (
+                db.query(InvestmentOpportunity)
+                .filter_by(
+                    user_id=user.id,
+                    symbol=item["symbol"],
+                )
+                .first()
+            )
 
             if opp:
                 opp.current_price = item["price"]
@@ -1290,23 +1773,26 @@ def trigger_opportunities_scan():
                 )
                 db.add(opp)
 
-            discovered.append({
-                "symbol": item["symbol"],
-                "exchange": item["exchange"],
-                "price": item["price"],
-                "target_price": item["target_price"],
-                "rsi_14": item["rsi_14"],
-                "pe_discount": item["pe_discount"],
-                "thesis": item["thesis"],
-                "signal_type": item["signal_type"],
-                "recommended_allocation": round(min(surplus * 0.25, 25000.0), 0),
-            })
+            discovered.append(
+                {
+                    "symbol": item["symbol"],
+                    "exchange": item["exchange"],
+                    "price": item["price"],
+                    "target_price": item["target_price"],
+                    "rsi_14": item["rsi_14"],
+                    "pe_discount": item["pe_discount"],
+                    "thesis": item["thesis"],
+                    "signal_type": item["signal_type"],
+                    "recommended_allocation": round(min(surplus * 0.25, 25000.0), 0),
+                }
+            )
 
         db.commit()
         return {
             "status": "success",
             "message": f"Scanned market and generated {len(discovered)} active opportunities grounded in ₹{surplus:,.0f} surplus cash.",
             "opportunities": discovered,
+            "opportunities_found": len(discovered),
         }
     except Exception as e:
         db.rollback()
@@ -1315,13 +1801,12 @@ def trigger_opportunities_scan():
         db.close()
 
 
-
 def get_dashboard_state(
     user_id: str = None,
     year: int = None,
     month: int = None,
-    start_date: Optional[date] = None,
-    end_date: Optional[date] = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> dict:
     """Aggregates all metrics and chart series for the whole dashboard for the selected period."""
     db = SessionLocal()
@@ -1399,8 +1884,8 @@ def get_dashboard_state(
             .all()
         )
 
-        daily_debit_sums: Dict[int, float] = {}
-        daily_credit_sums: Dict[int, float] = {}
+        daily_debit_sums: dict[int, float] = {}
+        daily_credit_sums: dict[int, float] = {}
         total_spent_in_period = 0.0
         total_income_in_period = 0.0
 
@@ -1428,7 +1913,9 @@ def get_dashboard_state(
 
         days_elapsed = max(current_day_idx, 1) if is_current_month else total_days
         daily_burn_rate = round(total_spent_in_period / days_elapsed, 2) if days_elapsed > 0 else 0.0
-        salary_consumed_pct = round((total_spent_in_period / total_income_in_period) * 100, 1) if total_income_in_period > 0 else 0.0
+        salary_consumed_pct = (
+            round((total_spent_in_period / total_income_in_period) * 100, 1) if total_income_in_period > 0 else 0.0
+        )
 
         spend_velocity_series = []
         running_debit = 0.0
@@ -1436,7 +1923,9 @@ def get_dashboard_state(
 
         # Sample days cleanly across the period
         step = max(1, total_days // 30)
-        sample_days = sorted(list(set([1] + [d for d in range(1, total_days + 1, step)] + [total_days, current_day_idx])))
+        sample_days = sorted(
+            list(set([1] + [d for d in range(1, total_days + 1, step)] + [total_days, current_day_idx]))
+        )
 
         for d in range(1, total_days + 1):
             running_debit += daily_debit_sums.get(d, 0.0)
@@ -1447,23 +1936,32 @@ def get_dashboard_state(
                 day_debit = daily_debit_sums.get(d, 0.0)
                 day_credit = daily_credit_sums.get(d, 0.0)
 
-                spend_velocity_series.append({
-                    "day": d,
-                    "date": date_label,
-                    "actual": round(running_debit, 2),
-                    "projected": round(running_credit, 2),
-                    "income": round(day_credit, 2),
-                    "spend": round(day_debit, 2),
-                    "cumulative_income": round(running_credit, 2),
-                    "cumulative_spend": round(running_debit, 2),
-                    "net_cashflow": round(running_credit - running_debit, 2),
-                    "budget_limit": budget_cap,
-                })
+                spend_velocity_series.append(
+                    {
+                        "day": d,
+                        "date": date_label,
+                        "actual": round(running_debit, 2),
+                        "projected": round(running_credit, 2),
+                        "income": round(day_credit, 2),
+                        "spend": round(day_debit, 2),
+                        "cumulative_income": round(running_credit, 2),
+                        "cumulative_spend": round(running_debit, 2),
+                        "net_cashflow": round(running_credit - running_debit, 2),
+                        "budget_limit": budget_cap,
+                    }
+                )
 
         # 5. 50/30/20 Budget Health
         category_spending = ledger_repo.get_spending_by_category(start_d, end_d)
-        needs_categories = {"housing & rent", "bills & utilities", "healthcare", "transportation", "groceries", "utilities"}
-        
+        needs_categories = {
+            "housing & rent",
+            "bills & utilities",
+            "healthcare",
+            "transportation",
+            "groceries",
+            "utilities",
+        }
+
         needs_spent = 0.0
         wants_spent = 0.0
 
@@ -1508,17 +2006,19 @@ def get_dashboard_state(
         # 6. Asset Allocation
         asset_breakdown = portfolio_repo.get_asset_allocation_breakdown()
         color_palette = ["#3b82f6", "#10b981", "#f59e0b", "#a855f7", "#ec4899", "#06b6d4"]
-        
+
         asset_allocation = []
         if asset_breakdown:
             for idx, ab in enumerate(asset_breakdown):
-                asset_allocation.append({
-                    "name": ab["asset_class"].capitalize(),
-                    "value": ab["pct_of_portfolio"],
-                    "amount": ab["total_value"],
-                    "target": 60 if ab["asset_class"].lower() == "equity" else 20,
-                    "fill": color_palette[idx % len(color_palette)],
-                })
+                asset_allocation.append(
+                    {
+                        "name": ab["asset_class"].capitalize(),
+                        "value": ab["pct_of_portfolio"],
+                        "amount": ab["total_value"],
+                        "target": 60 if ab["asset_class"].lower() == "equity" else 20,
+                        "fill": color_palette[idx % len(color_palette)],
+                    }
+                )
         else:
             asset_allocation = [
                 {"name": "Liquid Cash", "value": 100, "amount": liquid_cash, "target": 10, "fill": "#6366f1"}
@@ -1526,6 +2026,7 @@ def get_dashboard_state(
 
         # 7. Performance Benchmark (Real 6-Month Historical Alpha & Growth)
         from src.services.stock_analyzer_service import compute_portfolio_growth_and_alpha
+
         performance_series = compute_portfolio_growth_and_alpha(db, uid)
 
         # 8. Opportunities
@@ -1580,7 +2081,11 @@ def get_dashboard_state(
                     "total_spent": round(total_spent_in_period, 2),
                     "total_income": round(total_income_in_period, 2),
                     "net_surplus": round(total_income_in_period - total_spent_in_period, 2),
-                    "savings_rate_pct": round(((total_income_in_period - total_spent_in_period) / total_income_in_period) * 100, 1) if total_income_in_period > 0 else 0.0,
+                    "savings_rate_pct": (
+                        round(((total_income_in_period - total_spent_in_period) / total_income_in_period) * 100, 1)
+                        if total_income_in_period > 0
+                        else 0.0
+                    ),
                     "daily_burn_rate": daily_burn_rate,
                 },
                 "budget_503020": budget_503020,
@@ -1599,9 +2104,7 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info("WebSocket Client Connected.")
 
     initial_snapshot = get_dashboard_state()
-    await websocket.send_text(
-        json.dumps({"type": "DASHBOARD_SNAPSHOT", "payload": initial_snapshot})
-    )
+    await websocket.send_text(json.dumps({"type": "DASHBOARD_SNAPSHOT", "payload": initial_snapshot}))
 
     try:
         while True:
@@ -1620,27 +2123,34 @@ async def websocket_endpoint(websocket: WebSocket):
                 end_d = datetime.strptime(date_to_str, "%Y-%m-%d").date() if date_to_str else None
 
                 snapshot = get_dashboard_state(year=year, month=month, start_date=start_d, end_date=end_d)
-                await websocket.send_text(
-                    json.dumps({"type": "DASHBOARD_SNAPSHOT", "payload": snapshot})
-                )
+                await websocket.send_text(json.dumps({"type": "DASHBOARD_SNAPSHOT", "payload": snapshot}))
 
             elif action == "TRIGGER_SYNC":
                 await websocket.send_text(
-                    json.dumps({
-                        "type": "SYNC_STATUS",
-                        "payload": {"step": "syncing_ledger", "message": "Synchronizing database ledger & balances..."},
-                    })
+                    json.dumps(
+                        {
+                            "type": "SYNC_STATUS",
+                            "payload": {
+                                "step": "syncing_ledger",
+                                "message": "Synchronizing database ledger & balances...",
+                            },
+                        }
+                    )
                 )
                 await asyncio.sleep(0.5)
                 snapshot = get_dashboard_state()
+                await websocket.send_text(json.dumps({"type": "DASHBOARD_SNAPSHOT", "payload": snapshot}))
                 await websocket.send_text(
-                    json.dumps({"type": "DASHBOARD_SNAPSHOT", "payload": snapshot})
-                )
-                await websocket.send_text(
-                    json.dumps({
-                        "type": "SYNC_STATUS",
-                        "payload": {"step": "completed", "message": "Database sync complete.", "last_sync": datetime.now().strftime("%I:%M %p")},
-                    })
+                    json.dumps(
+                        {
+                            "type": "SYNC_STATUS",
+                            "payload": {
+                                "step": "completed",
+                                "message": "Database sync complete.",
+                                "last_sync": datetime.now().strftime("%I:%M %p"),
+                            },
+                        }
+                    )
                 )
 
             elif action == "SEND_CHAT":
@@ -1653,42 +2163,45 @@ async def websocket_endpoint(websocket: WebSocket):
                 db.close()
 
                 try:
-                    from src.ai.financial_agent_graph import create_financial_copilot_graph
                     from langchain_core.messages import HumanMessage
 
+                    from src.ai.financial_agent_graph import create_financial_copilot_graph
+
                     copilot_graph = create_financial_copilot_graph()
-                    copilot_res = copilot_graph.invoke({
-                        "user_id": uid,
-                        "messages": [HumanMessage(content=prompt)],
-                        "current_task": "chat",
-                        "specialist_plan": [],
-                        "evidence_queries": [],
-                    })
+                    copilot_res = copilot_graph.invoke(
+                        {
+                            "user_id": uid,
+                            "messages": [HumanMessage(content=prompt)],
+                            "current_task": "chat",
+                            "specialist_plan": [],
+                            "evidence_queries": [],
+                        }
+                    )
 
                     ai_messages = copilot_res.get("messages", [])
                     response_text = ai_messages[-1].content if ai_messages else "I have analyzed your financial ledger."
 
                 except Exception as copilot_err:
                     logger.warning(f"Copilot graph error: {copilot_err}. Falling back to deterministic analysis.")
-                    response_text = f"**Financial Analysis:** Based on your live ledger, your income and expenditures are synchronized in SQLite. Ask me about your spend runway or investment recommendations!"
+                    response_text = "**Financial Analysis:** Based on your live ledger, your income and expenditures are synchronized in SQLite. Ask me about your spend runway or investment recommendations!"
 
                 # Stream response tokens
                 words = response_text.split(" ")
                 for word in words:
-                    await websocket.send_text(
-                        json.dumps({"type": "CHAT_TOKEN", "payload": {"token": word + " "}})
-                    )
+                    await websocket.send_text(json.dumps({"type": "CHAT_TOKEN", "payload": {"token": word + " "}}))
                     await asyncio.sleep(0.02)
 
                 await websocket.send_text(
-                    json.dumps({
-                        "type": "CHAT_COMPLETE",
-                        "payload": {
-                            "full_text": response_text,
-                            "evidence_id": "ev_" + datetime.now().strftime("%f")[:6],
-                            "model": settings.OLLAMA_COPILOT_MODEL,
-                        },
-                    })
+                    json.dumps(
+                        {
+                            "type": "CHAT_COMPLETE",
+                            "payload": {
+                                "full_text": response_text,
+                                "evidence_id": "ev_" + datetime.now().strftime("%f")[:6],
+                                "model": settings.OLLAMA_COPILOT_MODEL,
+                            },
+                        }
+                    )
                 )
 
     except WebSocketDisconnect:
@@ -1697,6 +2210,71 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.error(f"WebSocket Error: {e}")
 
 
+# =========================================================
+# 🌐 STATIC FRONTEND SPA SERVING (For Standalone Desktop & Production)
+# =========================================================
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+
+def get_frontend_dist_dir():
+    # 1. Check PyInstaller temp directory
+    if hasattr(sys, "_MEIPASS"):
+        bundled_dir = os.path.join(sys._MEIPASS, "frontend_out")
+        if os.path.exists(bundled_dir):
+            return bundled_dir
+        bundled_alt = os.path.join(sys._MEIPASS, "frontend", "out")
+        if os.path.exists(bundled_alt):
+            return bundled_alt
+    # 2. Check local workspace frontend/out
+    workspace_out = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "out"))
+    if os.path.exists(workspace_out):
+        return workspace_out
+    return None
+
+
+frontend_dir = get_frontend_dist_dir()
+if frontend_dir and os.path.exists(frontend_dir):
+    logger.info(f"Serving Static Frontend from: {frontend_dir}")
+    next_static_dir = os.path.join(frontend_dir, "_next")
+    if os.path.exists(next_static_dir):
+        app.mount("/_next", StaticFiles(directory=next_static_dir), name="next_static")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Allow API and WS to pass through
+        if full_path.startswith("api/") or full_path.startswith("ws"):
+            raise HTTPException(status_code=404, detail="Not Found")
+
+        if not full_path or full_path == "":
+            index_path = os.path.join(frontend_dir, "index.html")
+            if os.path.isfile(index_path):
+                return FileResponse(index_path)
+
+        clean_path = full_path.rstrip("/")
+        file_path = os.path.join(frontend_dir, clean_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+
+        # Check subfolder/index.html (e.g. /ledger -> /ledger/index.html)
+        sub_index = os.path.join(frontend_dir, clean_path, "index.html")
+        if os.path.isfile(sub_index):
+            return FileResponse(sub_index)
+
+        # Check clean_path.html
+        direct_html = os.path.join(frontend_dir, f"{clean_path}.html")
+        if os.path.isfile(direct_html):
+            return FileResponse(direct_html)
+
+        # Fallback to root index.html
+        root_index = os.path.join(frontend_dir, "index.html")
+        if os.path.isfile(root_index):
+            return FileResponse(root_index)
+
+        raise HTTPException(status_code=404, detail="Page Not Found")
+
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("src.main:app", host=settings.HOST, port=settings.PORT, reload=settings.DEBUG)

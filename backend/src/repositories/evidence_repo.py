@@ -1,7 +1,7 @@
 import hashlib
 import json
-from typing import Dict, Any, Optional
 from datetime import datetime
+
 from src.models import EvidenceQuery
 from src.repositories.base import BaseRepository
 from src.utils.log_functions import logtime
@@ -15,7 +15,7 @@ class EvidenceRepository(BaseRepository):
         query_template: str,
         query_params: dict,
         result_snapshot: dict,
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
     ) -> EvidenceQuery:
         """Stores a deterministic evidence snapshot for an AI claim."""
         canonical = json.dumps(result_snapshot, sort_keys=True, default=str)
@@ -36,6 +36,6 @@ class EvidenceRepository(BaseRepository):
         return evidence
 
     @logtime
-    def get_evidence_by_id(self, evidence_id: str) -> Optional[EvidenceQuery]:
+    def get_evidence_by_id(self, evidence_id: str) -> EvidenceQuery | None:
         """Retrieves an evidence record for independent verification."""
         return self._scoped_query(EvidenceQuery).filter(EvidenceQuery.id == evidence_id).first()

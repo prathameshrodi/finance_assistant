@@ -8,10 +8,8 @@ import {
   X,
   AlertTriangle,
   RefreshCw,
-  Tag,
   CheckCircle2,
   Inbox,
-  Filter,
   Search,
   Loader2,
   Building2,
@@ -19,9 +17,9 @@ import {
   Landmark,
   Edit2,
   Save,
-  RotateCcw,
 } from "lucide-react";
 import { API_BASE_URL } from "@/lib/api";
+import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
 
 interface StagedBankItem {
   temp_id: string;
@@ -30,7 +28,7 @@ interface StagedBankItem {
   merchant: string;
   description: string;
   amount: number;
-  txn_type: "debit" | "credit";
+  txn_type: "debit" | "credit" | "balance" | string;
   suggested_category?: string;
   final_category: string;
   is_duplicate: boolean;
@@ -181,7 +179,6 @@ export default function StagedTransactionsPage() {
     setNotification(null);
 
     try {
-      let res: Response;
       const bodyPayload = JSON.stringify({
         thread_id: `batch_${Date.now()}`,
         reviewed_transactions: bankItems,
@@ -325,7 +322,7 @@ export default function StagedTransactionsPage() {
       )}
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-6 pb-24 md:pb-8 touch-scroll">
         {/* Segmented Tab Switcher */}
         <div className="flex items-center gap-3 border-b border-slate-800 pb-2">
           <button
@@ -915,6 +912,9 @@ export default function StagedTransactionsPage() {
           </>
         )}
       </main>
+
+      {/* 📱 Mobile Sticky Bottom Navigation */}
+      <MobileBottomNav pendingCount={bankItems.length + holdingItems.length} />
     </div>
   );
 }

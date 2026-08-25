@@ -1,8 +1,10 @@
-from sqlalchemy import Column, String, Float, Integer, Boolean, Date, DateTime, JSON, Text, ForeignKey
-from sqlalchemy.orm import relationship
-from src.database import Base
 import uuid
 from datetime import datetime
+
+from sqlalchemy import JSON, Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import relationship
+
+from src.database import Base
 
 
 class SyncRun(Base):

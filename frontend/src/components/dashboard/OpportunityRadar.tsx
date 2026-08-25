@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { StockOpportunity } from "@/lib/types";
 import { API_BASE_URL } from "@/lib/api";
-import { Radar, Sparkles, Inbox, RefreshCw, ArrowUpRight, TrendingUp, Target, ShieldAlert, X, MessageSquareQuote } from "lucide-react";
+import { Radar, Sparkles, Inbox, RefreshCw, ArrowUpRight, TrendingUp, Target, X, MessageSquareQuote } from "lucide-react";
 
 interface OpportunityRadarProps {
   opportunities: StockOpportunity[];

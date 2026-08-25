@@ -1,12 +1,10 @@
 import calendar
-import json
 import logging
-from datetime import datetime, date, timedelta
-from typing import Dict, Any, List
+from datetime import date, timedelta
 
 from src.database import SessionLocal
-from src.models import User, Transaction, Category, PortfolioHolding, Account
-from src.repositories import LedgerRepository, PortfolioRepository
+from src.models import Account, Category, Transaction, User
+from src.repositories import PortfolioRepository
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +26,7 @@ def compute_spending_and_behavioral_analytics(user_id: str = "") -> dict:
 
         # 1. Fetch all live transactions
         txns = (
-            db.query(Transaction)
-            .filter(Transaction.user_id == uid)
-            .order_by(Transaction.transaction_date.desc())
-            .all()
+            db.query(Transaction).filter(Transaction.user_id == uid).order_by(Transaction.transaction_date.desc()).all()
         )
 
         categories_map = {c.id: (c.name, c.category_type) for c in db.query(Category).all()}
@@ -43,22 +38,24 @@ def compute_spending_and_behavioral_analytics(user_id: str = "") -> dict:
             m_year = m_date.year
             m_month = m_date.month
             m_name = calendar.month_abbr[m_month]
-            
+
             m_txns = [t for t in txns if t.transaction_date.year == m_year and t.transaction_date.month == m_month]
-            
+
             debits = sum(t.amount for t in m_txns if (t.txn_type or "debit").lower() == "debit")
             credits = sum(t.amount for t in m_txns if (t.txn_type or "debit").lower() == "credit")
             income = credits if credits > 0 else salary
             invested = max(income - debits, 0.0)
             savings_rate = round((invested / income) * 100, 1) if income > 0 else 0.0
 
-            monthly_trend.append({
-                "month": f"{m_name} {m_year}",
-                "spent": round(debits, 2),
-                "income": round(income, 2),
-                "savings_surplus": round(invested, 2),
-                "savings_rate_pct": savings_rate,
-            })
+            monthly_trend.append(
+                {
+                    "month": f"{m_name} {m_year}",
+                    "spent": round(debits, 2),
+                    "income": round(income, 2),
+                    "savings_surplus": round(invested, 2),
+                    "savings_rate_pct": savings_rate,
+                }
+            )
 
         # 3. Day of Week Distribution (Mon to Sun)
         day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -88,7 +85,7 @@ def compute_spending_and_behavioral_analytics(user_id: str = "") -> dict:
         weekend_spend_pct = round((weekend_spend / total_debit_all) * 100, 1) if total_debit_all > 0 else 0.0
 
         # 4. Category Breakdown & Velocity
-        cat_sums: Dict[str, float] = {}
+        cat_sums: dict[str, float] = {}
         for t in txns:
             if (t.txn_type or "debit").lower() == "debit":
                 cat_info = categories_map.get(t.category_id, ("Other Expenses", "expense"))
@@ -107,7 +104,7 @@ def compute_spending_and_behavioral_analytics(user_id: str = "") -> dict:
         ]
 
         # 5. Recurring Leakage & Subscriptions Detection
-        desc_counts: Dict[str, List[Transaction]] = {}
+        desc_counts: dict[str, list[Transaction]] = {}
         for t in txns:
             if (t.txn_type or "debit").lower() == "debit":
                 key = t.description.strip().lower()
@@ -117,32 +114,40 @@ def compute_spending_and_behavioral_analytics(user_id: str = "") -> dict:
         for desc, t_list in desc_counts.items():
             if len(t_list) >= 2:
                 avg_amt = sum(t.amount for t in t_list) / len(t_list)
-                recurring_subscriptions.append({
-                    "name": t_list[0].description,
-                    "occurrences": len(t_list),
-                    "avg_amount": round(avg_amt, 2),
-                    "total_spent": round(sum(t.amount for t in t_list), 2),
-                    "frequency": "Monthly" if len(t_list) <= 6 else "Frequent",
-                    "annual_drain": round(avg_amt * 12, 2),
-                })
+                recurring_subscriptions.append(
+                    {
+                        "name": t_list[0].description,
+                        "occurrences": len(t_list),
+                        "avg_amount": round(avg_amt, 2),
+                        "total_spent": round(sum(t.amount for t in t_list), 2),
+                        "frequency": "Monthly" if len(t_list) <= 6 else "Frequent",
+                        "annual_drain": round(avg_amt * 12, 2),
+                    }
+                )
 
         recurring_subscriptions = sorted(recurring_subscriptions, key=lambda x: x["total_spent"], reverse=True)[:5]
         annual_subscription_drain = sum(r["annual_drain"] for r in recurring_subscriptions)
 
         # 6. Current Month 50/30/20 Compliance
-        curr_month_txns = [t for t in txns if t.transaction_date.year == today.year and t.transaction_date.month == today.month]
+        curr_month_txns = [
+            t for t in txns if t.transaction_date.year == today.year and t.transaction_date.month == today.month
+        ]
         curr_spent = sum(t.amount for t in curr_month_txns if (t.txn_type or "debit").lower() == "debit")
-        
+
         needs_cats = ["housing & rent", "bills & utilities", "healthcare", "groceries"]
         wants_cats = ["food & dining", "shopping", "entertainment", "travel", "other expenses"]
 
         needs_spent = sum(
-            t.amount for t in curr_month_txns
-            if (t.txn_type or "debit").lower() == "debit" and categories_map.get(t.category_id, ("", ""))[0].lower() in needs_cats
+            t.amount
+            for t in curr_month_txns
+            if (t.txn_type or "debit").lower() == "debit"
+            and categories_map.get(t.category_id, ("", ""))[0].lower() in needs_cats
         )
         wants_spent = sum(
-            t.amount for t in curr_month_txns
-            if (t.txn_type or "debit").lower() == "debit" and categories_map.get(t.category_id, ("", ""))[0].lower() in wants_cats
+            t.amount
+            for t in curr_month_txns
+            if (t.txn_type or "debit").lower() == "debit"
+            and categories_map.get(t.category_id, ("", ""))[0].lower() in wants_cats
         )
         invested_spent = max(salary - curr_spent, 0.0)
 
@@ -192,44 +197,56 @@ def compute_spending_and_behavioral_analytics(user_id: str = "") -> dict:
         total_port_value = sum(h["current_value"] for h in holdings)
         total_cost_basis = sum(h["cost_basis"] for h in holdings)
         portfolio_unrealized_pnl = round(total_port_value - total_cost_basis, 2)
-        portfolio_return_pct = round((portfolio_unrealized_pnl / total_cost_basis) * 100, 1) if total_cost_basis > 0 else 0.0
+        portfolio_return_pct = (
+            round((portfolio_unrealized_pnl / total_cost_basis) * 100, 1) if total_cost_basis > 0 else 0.0
+        )
 
         # Emergency Runway (Months)
         monthly_burn_avg = total_spent_lifetime / max(len(monthly_trend), 1) if monthly_trend else salary * 0.5
         accounts = db.query(Account).filter_by(user_id=uid).all()
-        liquid_cash = sum(float(a.balance_snapshot or 0.0) for a in accounts if a.account_type in ["savings", "current", "cash"])
+        liquid_cash = sum(
+            float(a.balance_snapshot or 0.0) for a in accounts if a.account_type in ["savings", "current", "cash"]
+        )
         runway_months = round(liquid_cash / monthly_burn_avg, 1) if monthly_burn_avg > 0 else 6.0
 
         # AI Actionable Prescriptions
         prescriptions = []
         if wants_pct > 30.0:
-            prescriptions.append({
-                "type": "spend_cap",
-                "priority": "High",
-                "title": f"Cap Discretionary Wants by ₹{round(wants_spent - salary * 0.3, 0):,.0f}",
-                "description": f"Your Wants spending is currently {wants_pct}% of income (ideal is 30%). Trimming Swiggy/Zomato orders could save ₹{round(wants_spent * 0.2, 0):,.0f} monthly.",
-            })
+            prescriptions.append(
+                {
+                    "type": "spend_cap",
+                    "priority": "High",
+                    "title": f"Cap Discretionary Wants by ₹{round(wants_spent - salary * 0.3, 0):,.0f}",
+                    "description": f"Your Wants spending is currently {wants_pct}% of income (ideal is 30%). Trimming Swiggy/Zomato orders could save ₹{round(wants_spent * 0.2, 0):,.0f} monthly.",
+                }
+            )
         if weekend_spend_pct > 45.0:
-            prescriptions.append({
-                "type": "weekend_alert",
-                "priority": "Medium",
-                "title": "Weekend Spending Surge Detected",
-                "description": f"{weekend_spend_pct}% of all your debits occur between Friday and Sunday. Setting a weekend spending envelope of ₹{round(salary * 0.08, 0):,.0f} protects your month-end runway.",
-            })
+            prescriptions.append(
+                {
+                    "type": "weekend_alert",
+                    "priority": "Medium",
+                    "title": "Weekend Spending Surge Detected",
+                    "description": f"{weekend_spend_pct}% of all your debits occur between Friday and Sunday. Setting a weekend spending envelope of ₹{round(salary * 0.08, 0):,.0f} protects your month-end runway.",
+                }
+            )
         if recurring_subscriptions:
-            prescriptions.append({
-                "type": "subscription_audit",
-                "priority": "Low",
-                "title": f"Audit {len(recurring_subscriptions)} Recurring Charges (₹{annual_subscription_drain:,.0f}/yr)",
-                "description": f"You have {len(recurring_subscriptions)} recurring payments draining ₹{annual_subscription_drain:,.0f} annually. Cancel unused digital subscriptions.",
-            })
+            prescriptions.append(
+                {
+                    "type": "subscription_audit",
+                    "priority": "Low",
+                    "title": f"Audit {len(recurring_subscriptions)} Recurring Charges (₹{annual_subscription_drain:,.0f}/yr)",
+                    "description": f"You have {len(recurring_subscriptions)} recurring payments draining ₹{annual_subscription_drain:,.0f} annually. Cancel unused digital subscriptions.",
+                }
+            )
         if invest_pct < 20.0:
-            prescriptions.append({
-                "type": "invest_boost",
-                "priority": "High",
-                "title": f"Boost Monthly SIP by ₹{round(salary * 0.20 - invested_spent, 0):,.0f}",
-                "description": f"Automate a ₹{round(salary * 0.20, 0):,.0f} transfer into Nifty 50 Index ETF on salary credit day to reach the 20% savings gold standard.",
-            })
+            prescriptions.append(
+                {
+                    "type": "invest_boost",
+                    "priority": "High",
+                    "title": f"Boost Monthly SIP by ₹{round(salary * 0.20 - invested_spent, 0):,.0f}",
+                    "description": f"Automate a ₹{round(salary * 0.20, 0):,.0f} transfer into Nifty 50 Index ETF on salary credit day to reach the 20% savings gold standard.",
+                }
+            )
 
         return {
             "user_name": user.full_name,

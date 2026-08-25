@@ -11,9 +11,8 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  ReferenceLine,
 } from "recharts";
-import { ArrowDownRight, ArrowUpRight, Wallet, Layers, BarChart2, TrendingUp } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Wallet } from "lucide-react";
 
 interface SpendVelocityChartProps {
   data: SpendVelocityPoint[];

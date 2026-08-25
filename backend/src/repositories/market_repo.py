@@ -1,12 +1,13 @@
-from typing import List, Dict, Any, Optional
-from src.models import Watchlist, WatchlistItem, MarketPriceCache, InvestmentOpportunity
+from typing import Any
+
+from src.models import InvestmentOpportunity, MarketPriceCache, Watchlist
 from src.repositories.base import BaseRepository
 from src.utils.log_functions import logtime
 
 
 class MarketRepository(BaseRepository):
     @logtime
-    def get_watchlist_with_prices(self) -> List[Dict[str, Any]]:
+    def get_watchlist_with_prices(self) -> list[dict[str, Any]]:
         """Retrieves user watchlist items joined with cached market prices."""
         watchlists = self._scoped_query(Watchlist).all()
         results = []
@@ -22,22 +23,24 @@ class MarketRepository(BaseRepository):
                     .first()
                 )
 
-                results.append({
-                    "watchlist_name": wl.name,
-                    "symbol": item.symbol,
-                    "exchange": item.exchange,
-                    "target_buy_price": item.target_buy_price,
-                    "current_price": cached.current_price if cached else None,
-                    "day_change_pct": cached.day_change_pct if cached else 0.0,
-                    "rsi_14": cached.rsi_14 if cached else None,
-                    "pe_ratio": cached.pe_ratio if cached else None,
-                    "alert_notes": item.alert_notes,
-                })
+                results.append(
+                    {
+                        "watchlist_name": wl.name,
+                        "symbol": item.symbol,
+                        "exchange": item.exchange,
+                        "target_buy_price": item.target_buy_price,
+                        "current_price": cached.current_price if cached else None,
+                        "day_change_pct": cached.day_change_pct if cached else 0.0,
+                        "rsi_14": cached.rsi_14 if cached else None,
+                        "pe_ratio": cached.pe_ratio if cached else None,
+                        "alert_notes": item.alert_notes,
+                    }
+                )
 
         return results
 
     @logtime
-    def get_active_opportunities(self, min_confidence: float = 0.7) -> List[InvestmentOpportunity]:
+    def get_active_opportunities(self, min_confidence: float = 0.7) -> list[InvestmentOpportunity]:
         """Returns active investment opportunities discovered by the scanner."""
         return (
             self._scoped_query(InvestmentOpportunity)

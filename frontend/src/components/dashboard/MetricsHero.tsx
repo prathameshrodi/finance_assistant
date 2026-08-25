@@ -5,9 +5,11 @@ import { TrendingUp, Wallet, ArrowUpRight, Flame, Clock } from "lucide-react";
 
 interface MetricsHeroProps {
   metrics: HeroMetrics;
+  currency?: string;
 }
 
-export function MetricsHero({ metrics }: MetricsHeroProps) {
+export function MetricsHero({ metrics, currency = "INR" }: MetricsHeroProps) {
+  const sym = currency === "USD" ? "$" : currency === "EUR" ? "€" : "₹";
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
       {/* 1. Net Worth */}
@@ -20,7 +22,7 @@ export function MetricsHero({ metrics }: MetricsHeroProps) {
         </div>
         <div className="mt-3">
           <div className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-            ₹{metrics.net_worth.toLocaleString("en-IN")}
+            {sym}{metrics.net_worth.toLocaleString("en-IN")}
           </div>
           <div className="flex items-center gap-1 mt-1 text-xs font-medium text-emerald-400">
             <ArrowUpRight className="w-3.5 h-3.5" />

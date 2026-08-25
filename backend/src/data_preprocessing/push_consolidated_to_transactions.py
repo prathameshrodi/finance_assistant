@@ -1,24 +1,26 @@
+import hashlib
 import os
 import sys
 import uuid
-import hashlib
+from datetime import date, datetime
+
 import openpyxl
-from datetime import datetime, date
 
 # Ensure backend root is on sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from src.database import SessionLocal
 from src.models import (
-    User,
-    Institution,
     Account,
     Category,
-    Transaction,
-    TransactionFingerprintSource,
+    Institution,
     StagedTransaction,
     SyncRun,
+    Transaction,
+    TransactionFingerprintSource,
+    User,
 )
+
 
 def reset_and_load_golden_truth():
     excel_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "consolidated_preview.xlsx"))
@@ -77,17 +79,16 @@ def reset_and_load_golden_truth():
         cbi_accounts = (
             db.query(Account)
             .join(Institution, Account.institution_id == Institution.id, isouter=True)
-            .filter(
-                (Institution.name.ilike("%central bank%"))
-                | (Account.account_name.ilike("%central bank%"))
-            )
+            .filter((Institution.name.ilike("%central bank%")) | (Account.account_name.ilike("%central bank%")))
             .all()
         )
         cbi_account_ids = {a.id for a in cbi_accounts}
         print(f"Preserving Central Bank of India account IDs: {cbi_account_ids}")
 
         # 3. Clean up non-CBI transactions
-        preserved_txns_count = db.query(Transaction).filter(Transaction.account_id.in_(cbi_account_ids)).count() if cbi_account_ids else 0
+        preserved_txns_count = (
+            db.query(Transaction).filter(Transaction.account_id.in_(cbi_account_ids)).count() if cbi_account_ids else 0
+        )
         deleted_txns = (
             db.query(Transaction)
             .filter(~Transaction.account_id.in_(cbi_account_ids) if cbi_account_ids else True)
@@ -99,12 +100,10 @@ def reset_and_load_golden_truth():
             .delete(synchronize_session=False)
         )
         deleted_staged = (
-            db.query(StagedTransaction)
-            .filter(StagedTransaction.user_id == user_id)
-            .delete(synchronize_session=False)
+            db.query(StagedTransaction).filter(StagedTransaction.user_id == user_id).delete(synchronize_session=False)
         )
         db.flush()
-        print(f"🧹 Cleaned old database state:")
+        print("🧹 Cleaned old database state:")
         print(f"   • Preserved Central Bank of India Transactions: {preserved_txns_count}")
         print(f"   • Purged other Transactions: {deleted_txns}")
         print(f"   • Purged old Fingerprints: {deleted_fp}")
@@ -154,8 +153,12 @@ def reset_and_load_golden_truth():
                 txn_date = date.today()
 
             # B. Parse Institution & Bank Account
-            bank_name = str(row[bank_name_col]).strip() if bank_name_col is not None and row[bank_name_col] else "HDFC Bank"
-            acc_num = str(row[acc_num_col]).strip() if acc_num_col is not None and row[acc_num_col] else "Primary Account"
+            bank_name = (
+                str(row[bank_name_col]).strip() if bank_name_col is not None and row[bank_name_col] else "HDFC Bank"
+            )
+            acc_num = (
+                str(row[acc_num_col]).strip() if acc_num_col is not None and row[acc_num_col] else "Primary Account"
+            )
 
             inst_key = bank_name.lower()
             if inst_key not in institutions:
@@ -240,7 +243,9 @@ def reset_and_load_golden_truth():
                 txn_type = "debit"
 
             try:
-                amt_str = str(row[amount_col]).replace(",", "").replace("₹", "").replace("$", "").replace("Rs.", "").strip()
+                amt_str = (
+                    str(row[amount_col]).replace(",", "").replace("₹", "").replace("$", "").replace("Rs.", "").strip()
+                )
                 amt = abs(float(amt_str))
             except Exception:
                 amt = 0.0
@@ -312,7 +317,7 @@ def reset_and_load_golden_truth():
 
         db.commit()
         print("\n==================================================================")
-        print(f"✅ GOLDEN TRUTH LOAD COMPLETE!")
+        print("✅ GOLDEN TRUTH LOAD COMPLETE!")
         print(f"   • Total Records Ingested: {inserted_count}")
         print(f"   • Total Active Categories: {len(categories)}")
         print(f"   • Total Bank Accounts: {len(accounts)}")
@@ -323,9 +328,11 @@ def reset_and_load_golden_truth():
         db.rollback()
         print(f"❌ ERROR loading golden truth: {e}")
         import traceback
+
         traceback.print_exc()
     finally:
         db.close()
+
 
 if __name__ == "__main__":
     reset_and_load_golden_truth()

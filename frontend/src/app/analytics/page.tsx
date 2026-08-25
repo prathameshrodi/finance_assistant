@@ -8,21 +8,12 @@ import {
   TrendingUp,
   Brain,
   ShieldCheck,
-  Zap,
   Activity,
-  AlertTriangle,
-  CheckCircle2,
   Sparkles,
-  Calendar,
-  Layers,
   PieChart,
-  DollarSign,
-  ArrowUpRight,
-  ArrowDownRight,
   Clock,
   Repeat,
   Target,
-  MessageSquareQuote,
   Loader2,
   Flame,
 } from "lucide-react";
@@ -33,13 +24,11 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  Cell,
-  LineChart,
-  Line,
   CartesianGrid,
   Legend,
 } from "recharts";
 import { API_BASE_URL } from "@/lib/api";
+import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
 
 export default function BehavioralAnalyticsPage() {
   const [data, setData] = useState<any | null>(null);
@@ -103,7 +92,6 @@ export default function BehavioralAnalyticsPage() {
     monthly_trends = [],
     day_of_week_analysis = [],
     weekend_spend_pct = 42.0,
-    category_analytics = [],
     recurring_subscriptions = [],
     annual_subscription_drain = 0,
     ai_prescriptions = [],
@@ -165,7 +153,7 @@ export default function BehavioralAnalyticsPage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-6 pb-24 md:pb-8 touch-scroll">
         {/* 🌟 1. HERO BEHAVIORAL SCORE & PROFILING CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Financial Health Score */}
@@ -482,6 +470,9 @@ export default function BehavioralAnalyticsPage() {
           )}
         </div>
       </main>
+
+      {/* 📱 Mobile Sticky Bottom Navigation */}
+      <MobileBottomNav />
     </div>
   );
 }

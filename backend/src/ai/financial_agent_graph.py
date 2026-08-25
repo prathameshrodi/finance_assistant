@@ -1,18 +1,15 @@
-import json
 import logging
-from typing import Dict, Any, List, Optional
-from datetime import datetime, date
+from datetime import date
 
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import AIMessage
 from langchain_ollama import ChatOllama
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import END, START, StateGraph
 
+from src.ai.state import FinancialAgentState
 from src.config import settings
 from src.database import SessionLocal
-from src.models import User, Transaction, Category, PortfolioHolding, MarketPriceCache, InvestmentOpportunity
-from src.repositories import LedgerRepository, PortfolioRepository, MarketRepository
-from src.ai.state import FinancialAgentState
+from src.models import User
+from src.repositories import LedgerRepository, MarketRepository, PortfolioRepository
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +46,12 @@ def fetch_user_financial_context(user_id: str) -> dict:
         portfolio_val = sum(h.get("current_value", 0.0) for h in holdings)
 
         top_categories = [f"{c['category']}: ₹{c['total_spent']:,.0f}" for c in cats[:4]]
-        holdings_summary = [f"{h['symbol']} ({h['asset_class']}): {h['quantity']} units @ ₹{h['avg_buy_price']}" for h in holdings[:5]]
-        top_opps = [f"{o.symbol} (RSI: {o.technical_indicators.get('rsi_14', 32):.1f}) - {o.thesis[:60]}..." for o in opps[:3]]
+        holdings_summary = [
+            f"{h['symbol']} ({h['asset_class']}): {h['quantity']} units @ ₹{h['avg_buy_price']}" for h in holdings[:5]
+        ]
+        top_opps = [
+            f"{o.symbol} (RSI: {o.technical_indicators.get('rsi_14', 32):.1f}) - {o.thesis[:60]}..." for o in opps[:3]
+        ]
 
         return {
             "user_name": user.full_name if user else "Investor",
@@ -88,15 +89,20 @@ INSTRUCTIONS:
 """
 
 
+from src.ai.llm_engine import generate_llm_response
+
+
 def financial_copilot_node(state: FinancialAgentState) -> dict:
     """Processes user queries with full database context."""
     user_id = state.get("user_id", "")
     context = fetch_user_financial_context(user_id)
 
     formatted_system = COPILOT_SYSTEM_PROMPT.format(**context)
-    messages = [SystemMessage(content=formatted_system)] + state.get("messages", [])
+    user_msgs = state.get("messages", [])
+    user_prompt = user_msgs[-1].content if user_msgs else "What is my financial status?"
 
-    response = copilot_llm.invoke(messages)
+    response_text = generate_llm_response(prompt=user_prompt, system_prompt=formatted_system)
+    response = AIMessage(content=response_text)
     return {"messages": [response]}
 
 

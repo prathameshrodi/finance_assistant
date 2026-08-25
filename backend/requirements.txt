@@ -1,23 +1,70 @@
+# ==========================================
+# 🚀 Web Framework & Server
+# ==========================================
 fastapi>=0.111.0
 uvicorn[standard]>=0.30.0
 websockets>=12.0
+python-multipart>=0.0.9
+
+# ==========================================
+# 🗄️ Database & Models
+# ==========================================
 sqlalchemy>=2.0.30
 pydantic>=2.7.0
 pydantic-settings>=2.3.0
+
+# ==========================================
+# 🤖 Embedded In-Process LLM (Direct GPU Execution) & Ollama
+# ==========================================
+llama-cpp-python>=0.2.90
+huggingface-hub>=0.23.0
 langchain>=0.2.0
-langgraph
-langchain-community
-langchain-ollama
+langchain-core>=0.2.0
+langchain-community>=0.2.0
+langchain-ollama>=0.1.0
+langgraph>=0.0.60
+json-repair>=0.25.0
+
+# ==========================================
+# 📄 Data Processing & Spreadsheets
+# ==========================================
+pandas>=2.2.0
+numpy>=1.26.0
+openpyxl>=3.1.2
+dateparser>=1.2.0
+
+# ==========================================
+# 📑 PDF & OCR Ingestion
+# ==========================================
+pypdf>=4.2.0
+pypdfium2>=4.30.0
+easyocr>=1.7.1
+
+# ==========================================
+# 📈 Market Data & Financial APIs
+# ==========================================
+yfinance>=0.2.40
+kiteconnect>=5.0.0
+
+# ==========================================
+# 🔄 Task Scheduling & Workers
+# ==========================================
+apscheduler>=3.10.4
+
+# ==========================================
+# 🔒 Security & Credentials
+# ==========================================
 cryptography>=42.0.0
 keyring>=25.0.0
+
+# ==========================================
+# 📧 Google Drive & Gmail Sync
+# ==========================================
 google-auth>=2.29.0
 google-api-python-client>=2.120.0
 google-auth-oauthlib>=1.2.0
-kiteconnect>=5.0.0
-yfinance>=0.2.40
-pypdf>=4.2.0
-python-multipart>=0.0.9
-apscheduler>=3.10.4
+
+# ==========================================
+# 🧪 Testing
+# ==========================================
 pytest>=8.2.0
-json-repair
-openpyxl

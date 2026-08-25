@@ -1,15 +1,15 @@
 import asyncio
-import logging
-import urllib.request
-import urllib.parse
 import json
+import logging
 import re
+import urllib.parse
+import urllib.request
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Any
 
 from src.config import settings
 from src.database import SessionLocal
-from src.models import PortfolioHolding, MarketPriceCache
+from src.models import MarketPriceCache, PortfolioHolding
 
 logger = logging.getLogger(__name__)
 
@@ -49,14 +49,14 @@ def calculate_rsi_14(closes: list) -> float:
     """Calculates 14-period Relative Strength Index (RSI)."""
     if len(closes) < 15:
         return 50.0
-    
+
     deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
     gains = [d if d > 0 else 0 for d in deltas[-14:]]
     losses = [abs(d) if d < 0 else 0 for d in deltas[-14:]]
-    
+
     avg_gain = sum(gains) / 14.0
     avg_loss = sum(losses) / 14.0
-    
+
     if avg_loss == 0:
         return 100.0
     rs = avg_gain / avg_loss
@@ -64,20 +64,17 @@ def calculate_rsi_14(closes: list) -> float:
     return round(rsi, 2)
 
 
-def fetch_live_nav_from_mfapi(scheme_name: str) -> Optional[Dict[str, Any]]:
+def fetch_live_nav_from_mfapi(scheme_name: str) -> dict[str, Any] | None:
     """
     Fetches real live Net Asset Value (NAV) for Indian Mutual Funds via the free official AMFI API (mfapi.in).
     """
     try:
         # Search for Scheme Code
-        clean_name = re.sub(r'[^a-zA-Z0-9\s]', '', scheme_name).strip()
+        clean_name = re.sub(r"[^a-zA-Z0-9\s]", "", scheme_name).strip()
         search_query = "+".join(clean_name.split()[:4])
         search_url = f"https://api.mfapi.in/mf/search?q={search_query}"
-        
-        req = urllib.request.Request(
-            search_url,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        )
+
+        req = urllib.request.Request(search_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
         with urllib.request.urlopen(req, timeout=4) as res:
             search_results = json.loads(res.read().decode("utf-8"))
 
@@ -91,10 +88,7 @@ def fetch_live_nav_from_mfapi(scheme_name: str) -> Optional[Dict[str, Any]]:
 
         # Fetch NAV History
         nav_url = f"https://api.mfapi.in/mf/{scheme_code}"
-        req_nav = urllib.request.Request(
-            nav_url,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        )
+        req_nav = urllib.request.Request(nav_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
         with urllib.request.urlopen(req_nav, timeout=4) as res_nav:
             scheme_data = json.loads(res_nav.read().decode("utf-8"))
 
@@ -121,31 +115,32 @@ def fetch_live_nav_from_mfapi(scheme_name: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def fetch_live_quote_from_yahoo(symbol: str, exchange: str = "NSE") -> Optional[Dict[str, Any]]:
+def fetch_live_quote_from_yahoo(symbol: str, exchange: str = "NSE") -> dict[str, Any] | None:
     """Fetches real live market quote & RSI for an Indian stock via yfinance."""
     if is_mutual_fund(symbol):
         return fetch_live_nav_from_mfapi(symbol)
 
     try:
         import yfinance as yf
+
         suffix = ".NS" if exchange.upper() == "NSE" else ".BO"
         clean_sym = symbol.upper().replace(" ", "").strip()
         ticker_str = f"{clean_sym}{suffix}"
-        
+
         t = yf.Ticker(ticker_str)
         hist = t.history(period="1mo")
         if hist.empty:
             return None
-            
+
         current_price = float(hist["Close"].iloc[-1])
         prev_close = float(hist["Close"].iloc[-2]) if len(hist) > 1 else current_price
         day_change = round(((current_price - prev_close) / prev_close) * 100, 2)
-        
+
         rsi = calculate_rsi_14(hist["Close"].tolist())
-        
+
         info = t.info or {}
         pe_ratio = info.get("trailingPE", info.get("forwardPE", 24.0))
-        
+
         return {
             "current_price": round(current_price, 2),
             "day_change_pct": day_change,
@@ -212,19 +207,23 @@ def sync_market_prices_once() -> int:
                 cache.pe_ratio = pe_ratio
                 cache.fetched_at = datetime.utcnow()
             else:
-                db.add(MarketPriceCache(
-                    symbol=sym,
-                    exchange=exch,
-                    current_price=current_price,
-                    day_change_pct=day_change,
-                    rsi_14=rsi,
-                    pe_ratio=pe_ratio,
-                    fetched_at=datetime.utcnow(),
-                ))
+                db.add(
+                    MarketPriceCache(
+                        symbol=sym,
+                        exchange=exch,
+                        current_price=current_price,
+                        day_change_pct=day_change,
+                        rsi_14=rsi,
+                        pe_ratio=pe_ratio,
+                        fetched_at=datetime.utcnow(),
+                    )
+                )
             updated_count += 1
 
         db.commit()
-        logger.info(f"Synchronized live market quotes for {updated_count} portfolio holdings (Equities & Mutual Funds).")
+        logger.info(
+            f"Synchronized live market quotes for {updated_count} portfolio holdings (Equities & Mutual Funds)."
+        )
         return updated_count
 
     except Exception as e:

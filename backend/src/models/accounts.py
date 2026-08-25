@@ -1,8 +1,10 @@
-from sqlalchemy import Column, String, Float, Boolean, DateTime, JSON, ForeignKey
-from sqlalchemy.orm import relationship
-from src.database import Base
 import uuid
 from datetime import datetime
+
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, String
+from sqlalchemy.orm import relationship, synonym
+
+from src.database import Base
 
 
 class Institution(Base):
@@ -30,9 +32,13 @@ class Account(Base):
     account_number_masked = Column(String(50), nullable=True)
     currency = Column(String(10), default="INR")
     balance_snapshot = Column(Float, default=0.00)
+    is_active = Column(Boolean, default=True)
     snapshot_at = Column(DateTime, default=datetime.utcnow)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     institution = relationship("Institution", back_populates="accounts")
-    transactions = relationship("Transaction", back_populates="account")
-    holdings = relationship("PortfolioHolding", back_populates="account")
+    transactions = relationship("Transaction", back_populates="account", cascade="all, delete-orphan")
+    holdings = relationship("PortfolioHolding", back_populates="account", cascade="all, delete-orphan")
+
+    name = synonym("account_name")
+    current_balance = synonym("balance_snapshot")

@@ -14,6 +14,22 @@ This guide walks you through setting up the **Personal Finance & Investment AI A
 | **Local LLM Engine** | [Ollama](https://ollama.com/) | Ollama with GPU acceleration (NVIDIA RTX or Apple Silicon) |
 | **VRAM / RAM** | 8 GB System RAM | 16 GB RAM + 4 GB+ GPU VRAM |
 
+## ⚡ 1-Click Automated Setup (Recommended)
+
+You can set up the entire project (Python virtual environment, dependencies, `.env` configs, database tables, and Next.js build) with a single command on any OS:
+
+### 🪟 Windows:
+Double click **`setup.bat`** or run:
+```powershell
+python setup.py
+```
+
+### 🍎 macOS & 🐧 Linux:
+```bash
+chmod +x setup.sh
+./setup.sh
+```
+
 ---
 
 ## 🤖 Step 1: Install & Configure Local Ollama AI
@@ -136,8 +152,8 @@ cp .env.example .env.local
 
 Verify contents of `frontend/.env.local`:
 ```env
-NEXT_PUBLIC_API_URL="http://localhost:8000"
-NEXT_PUBLIC_WS_URL="ws://localhost:8000/ws"
+NEXT_PUBLIC_API_URL="http://praths-pc.tail2bb261.ts.net:8000"
+NEXT_PUBLIC_WS_URL="ws://praths-pc.tail2bb261.ts.net:8000/ws"
 ```
 
 ### 3. Install Node Modules & Start Development Server
@@ -174,15 +190,59 @@ python -m src.ai.unified_ingestion_graph
 
 ---
 
-## 🔧 Useful Maintenance Commands
+## 🔧 Useful Commands & Routes
+
+| Page / Route | Description |
+|---|---|
+| 🏠 **`/`** | Financial Dashboard (Burn Velocity, 50/30/20 Rings, Net Worth, AI Copilot) |
+| 💳 **`/ledger`** | Live Ledger & Holding Manager (Manual CRUD & Statement Reconciliation) |
+| 📈 **`/watchlist`** | Stock & Opportunity Radar (6-Pillar Fundamental/Technical Analysis) |
+| 📊 **`/analytics`** | Deep Portfolio Allocation, Historical Burn Rates & Net Worth Projection |
+| 📥 **`/staged-transactions`** | Human-in-the-Loop Statement Review & Batch Approval |
+| ⚙️ **`/settings`** | User Profile, Multi-Bank & Demat Manager, Daily Excel Paths, AI Engine |
+| 🪄 **`/setup`** | Dedicated First-Time Setup Wizard (Profile, Salary, Multi-Accounts, Storage Paths) |
+
+---
+
+## 🐳 Docker Deployment (Recommended for Production)
+
+Run the entire stack (FastAPI Backend, Next.js Frontend, SQLite Storage & Ollama AI) in isolated containers:
+
+### 1-Click Startup:
+- **Windows**: Double-click `run_docker.bat`
+- **macOS / Linux**:
+  ```bash
+  chmod +x run_docker.sh
+  ./run_docker.sh
+  ```
+
+### Manual Docker Compose Command:
+```bash
+docker compose up --build -d
+```
+
+### Access URLs:
+- **🌐 Web Dashboard**: `http://localhost:3000`
+- **🔌 Backend API & Swagger Docs**: `http://localhost:8000/docs`
+- **🤖 Ollama AI Engine**: `http://localhost:11434`
+
+### Stop Containers:
+```bash
+docker compose down
+```
+
+---
+
+## 💻 Local Development Commands
 
 | Action | Command |
 |---|---|
-| **Start Backend Server** | `python run_backend.py` |
-| **Start Frontend App** | `cd frontend && npm run dev` |
-| **Reset / Re-create Tables** | `cd backend && python reset_tables.py` |
-| **Trigger Market Quote Sync** | `curl -X POST http://localhost:8000/api/v1/market/sync` |
-| **Run Deep Stock Analysis** | Accessible via UI on `/watchlist` or `/opportunities` |
+| 🐳 **Run Full Stack in Docker** | `docker compose up --build -d` (or `run_docker.bat`) |
+| 🚀 **Run Production Mode (Local Python)** | `python run_production.py` (or `run_production.bat`) |
+| 🛠️ **Start Backend (Dev Mode)** | `python run_backend.py` |
+| 🌐 **Start Frontend (Dev Mode)** | `cd frontend && npm run dev` |
+| 🗄️ **Reset / Re-create Tables** | `cd backend && python reset_tables.py` |
+| 📈 **Trigger Market Quote Sync** | `curl -X POST http://localhost:8000/api/v1/market/sync` |
 
 ---
 

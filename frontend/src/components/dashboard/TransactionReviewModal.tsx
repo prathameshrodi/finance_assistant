@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, X, AlertTriangle, Plus, Tag, ArrowRight, Loader2 } from "lucide-react";
+import { Check, X, AlertTriangle, Loader2 } from "lucide-react";
 
 export interface StagedTransactionItem {
   temp_id: string;

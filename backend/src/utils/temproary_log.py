@@ -32,7 +32,7 @@ def delete_file(file_name):
 def read_from_file(file_name):
     file_path = os.path.join(FILE_PATH, file_name)
     if os.path.exists(file_path):
-        with open(file_path, "r", encoding="utf-8") as file:
+        with open(file_path, encoding="utf-8") as file:
             return json.load(file)
     return None
 

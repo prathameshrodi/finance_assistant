@@ -1,9 +1,7 @@
-import json
 import logging
-from typing import Dict, Any
-from langchain_core.messages import SystemMessage, HumanMessage
+
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
-from langgraph.graph import StateGraph, START, END
 
 from src.config import settings
 from src.services.behavioral_analytics_service import compute_spending_and_behavioral_analytics
@@ -46,16 +44,23 @@ def generate_ai_behavioral_prognosis(user_id: str = "") -> dict:
     if not analytics:
         return {"error": "User financial data not found"}
 
-    top_cats = [f"{c['category']}: ₹{c['total_spent']:,.0f} ({c['share_pct']}%)" for c in analytics.get("category_analytics", [])[:4]]
+    top_cats = [
+        f"{c['category']}: ₹{c['total_spent']:,.0f} ({c['share_pct']}%)"
+        for c in analytics.get("category_analytics", [])[:4]
+    ]
     analytics["top_cats_summary"] = ", ".join(top_cats) if top_cats else "None recorded"
 
     formatted_prompt = BEHAVIORAL_COACH_PROMPT.format(**analytics)
 
     try:
-        response = ai_coach_llm.invoke([
-            SystemMessage(content="You are a seasoned behavioral economist. Ground all insights directly in the numbers provided."),
-            HumanMessage(content=formatted_prompt),
-        ])
+        response = ai_coach_llm.invoke(
+            [
+                SystemMessage(
+                    content="You are a seasoned behavioral economist. Ground all insights directly in the numbers provided."
+                ),
+                HumanMessage(content=formatted_prompt),
+            ]
+        )
         prognosis_text = response.content
     except Exception as e:
         logger.error(f"Error generating AI behavioral prognosis: {e}")

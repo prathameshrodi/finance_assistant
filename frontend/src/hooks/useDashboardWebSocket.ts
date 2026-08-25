@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { DashboardState, ChatMessage } from "@/lib/types";
-import { WS_BASE_URL } from "@/lib/api";
+import { getWsBaseUrl } from "@/lib/api";
 
 export function useDashboardWebSocket() {
   const [isConnected, setIsConnected] = useState(false);
@@ -23,7 +23,8 @@ export function useDashboardWebSocket() {
 
   const connect = useCallback(() => {
     try {
-      const ws = new WebSocket(WS_BASE_URL);
+      const wsUrl = getWsBaseUrl();
+      const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         setIsConnected(true);

@@ -37,10 +37,10 @@ export function BudgetRadialRing({ items }: BudgetRadialRingProps) {
 
               <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
                 <div
-                  className="h-full rounded-full transition-all duration-500"
+                  className={`h-full rounded-full transition-all duration-500 ${isOver ? "ring-1 ring-rose-500" : ""}`}
                   style={{
                     width: `${Math.min(item.pct, 100)}%`,
-                    backgroundColor: item.fill,
+                    backgroundColor: isOver ? "#f43f5e" : item.fill,
                   }}
                 />
               </div>

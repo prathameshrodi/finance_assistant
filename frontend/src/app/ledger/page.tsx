@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   Plus,
   Search,
-  Filter,
   RefreshCw,
   Edit2,
   Trash2,
@@ -20,7 +19,6 @@ import {
   Building2,
   ArrowUpRight,
   ArrowDownRight,
-  PieChart,
   Zap,
   Brain,
   ChevronLeft,
@@ -29,13 +27,14 @@ import {
   ChevronsRight,
 } from "lucide-react";
 import { API_BASE_URL } from "@/lib/api";
+import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
 
 interface TransactionRecord {
   id: string;
   date: string;
   description: string;
   amount: number;
-  txn_type: "debit" | "credit";
+  txn_type: "debit" | "credit" | "balance" | string;
   category_id: string;
   category_name: string;
   account_id: string;
@@ -183,7 +182,7 @@ export default function LedgerCrudPage() {
       date: t.date,
       description: t.description,
       amount: t.amount.toString(),
-      txn_type: t.txn_type,
+      txn_type: t.txn_type === "credit" ? "credit" : "debit",
       category_id: t.category_id,
       account_id: t.account_id,
     });
@@ -486,7 +485,7 @@ export default function LedgerCrudPage() {
       )}
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-6 pb-24 md:pb-8 touch-scroll">
         {/* KPI Cards */}
         {activeTab === "transactions" ? (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1216,6 +1215,9 @@ export default function LedgerCrudPage() {
           </div>
         </div>
       )}
+
+      {/* 📱 Mobile Sticky Bottom Navigation */}
+      <MobileBottomNav />
     </div>
   );
 }

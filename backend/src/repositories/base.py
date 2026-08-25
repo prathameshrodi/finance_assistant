@@ -4,7 +4,7 @@ from src.utils.log_functions import logtime
 
 
 class BaseRepository:
-    def __init__(self, db: Session, user_id: str)->None:
+    def __init__(self, db: Session, user_id: str) -> None:
         self.db = db
         self.user_id = user_id
 

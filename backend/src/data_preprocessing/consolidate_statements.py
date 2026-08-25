@@ -1,67 +1,110 @@
-import pandas as pd
 import re
 import warnings
+
+import pandas as pd
+
 warnings.filterwarnings("ignore")
 import dateparser
 
 HDFC_FILES = [
-r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX0360_20082026 (3).xls",
-r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX0360_20082026 (4).xls",
-r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX0360_20082026.xls",
-r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX6827_20082026 (1).xls",
-r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX6827_20082026 (2).xls",
-r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX6827_20082026 (3).xls",
-r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX6827_20082026 (4).xls",
-r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX6827_20082026.xls",
-r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX0360_20082026 (1).xls",
-r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX0360_20082026 (2).xls"
+    r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX0360_20082026 (3).xls",
+    r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX0360_20082026 (4).xls",
+    r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX0360_20082026.xls",
+    r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX6827_20082026 (1).xls",
+    r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX6827_20082026 (2).xls",
+    r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX6827_20082026 (3).xls",
+    r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX6827_20082026 (4).xls",
+    r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX6827_20082026.xls",
+    r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX0360_20082026 (1).xls",
+    r"G:\My Drive\Bank Statements For 5 Years\Acct_Statement_XXXXXXXX0360_20082026 (2).xls",
 ]
 ICICI_FILES = [
-r"G:\My Drive\Bank Statements For 5 Years\OpTransactionHistory20-08-2026 (1).xls",
-r"G:\My Drive\Bank Statements For 5 Years\OpTransactionHistory20-08-2026 (2).xls",
-r"G:\My Drive\Bank Statements For 5 Years\OpTransactionHistory20-08-2026 (3).xls",
-r"G:\My Drive\Bank Statements For 5 Years\OpTransactionHistory20-08-2026.xls"
+    r"G:\My Drive\Bank Statements For 5 Years\OpTransactionHistory20-08-2026 (1).xls",
+    r"G:\My Drive\Bank Statements For 5 Years\OpTransactionHistory20-08-2026 (2).xls",
+    r"G:\My Drive\Bank Statements For 5 Years\OpTransactionHistory20-08-2026 (3).xls",
+    r"G:\My Drive\Bank Statements For 5 Years\OpTransactionHistory20-08-2026.xls",
 ]
-rows = []          # final consolidated rows
-counts = {}         # per-file transaction counts
+rows = []  # final consolidated rows
+counts = {}  # per-file transaction counts
 flags_count = {"category": 0, "party": 0}
 
 # ---------------------------------------------------------------
 # Category keyword rules (checked in order, first match wins)
 # ---------------------------------------------------------------
 CATEGORIES_EXPECTING_PARTY = {
-    "Transfer", "Credit Card Payment", "Groceries", "Food & Dining", "Shopping",
-    "Travel", "Investment", "Insurance", "Salary", "Rent", "Loan/EMI",
-    "Subscription", "Healthcare", "Entertainment",
+    "Transfer",
+    "Credit Card Payment",
+    "Groceries",
+    "Food & Dining",
+    "Shopping",
+    "Travel",
+    "Investment",
+    "Insurance",
+    "Salary",
+    "Rent",
+    "Loan/EMI",
+    "Subscription",
+    "Healthcare",
+    "Entertainment",
 }
 
 CATEGORY_RULES = [
-    ("Salary",          [r"\bSALARY\b", r"\bSAL\b"]),
-    ("Rent",             [r"\bRENT\b"]),
-    ("Interest",         [r"INTEREST PAID", r"INTEREST CREDIT", r"INT\.?PD", r"PRIN AND INT AUTO_REDEEM"]),
-    ("ATM Withdrawal",   [r"\bATM\b", r"CASH WDL", r"\bNFS\b"]),
-    ("Fees",             [r"DCARDFEE", r"SMSCHGS", r"\bFEE\b", r"CHARGES", r"PAYWAVE.*JFEE"]),
+    ("Salary", [r"\bSALARY\b", r"\bSAL\b"]),
+    ("Rent", [r"\bRENT\b"]),
+    ("Interest", [r"INTEREST PAID", r"INTEREST CREDIT", r"INT\.?PD", r"PRIN AND INT AUTO_REDEEM"]),
+    ("ATM Withdrawal", [r"\bATM\b", r"CASH WDL", r"\bNFS\b"]),
+    ("Fees", [r"DCARDFEE", r"SMSCHGS", r"\bFEE\b", r"CHARGES", r"PAYWAVE.*JFEE"]),
     ("Credit Card Payment", [r"\bCRED\b", r"CRED CLUB", r"CREDIT CARD", r"HDFC CREDI", r"\bBBPS\b.*CREDI"]),
-    ("Investment",       [r"KANJIFOREX", r"MUTUAL FUND", r"\bSIP\b", r"ZERODHA", r"GROWW", r"ICICI ?DIRECT",
-                           r"\bFD THROUGH MOBILE\b", r"\bNSE\b", r"STOCK"]),
-    ("Insurance",        [r"ADPRULIFE", r"LIC\b", r"INSURANCE", r"PRULIFE"]),
-    ("Loan/EMI",         [r"\bEMI\b", r"\bLOAN\b", r"\bNACH\b", r"\bECS\b"]),
-    ("Groceries",        [r"ZEPTO", r"BLINKIT", r"BIGBASKET", r"D ?MART", r"SUPER SHOPPY", r"GROFERS",
-                           r"KIRANA", r"GROCERY"]),
-    ("Food & Dining",    [r"ZOMATO", r"SWIGGY", r"RESTAURANT", r"\bCAFE\b", r"EATS"]),
-    ("Shopping",         [r"MYNTRA", r"AMAZON", r"FLIPKART", r"AJIO", r"NYKAA"]),
-    ("Travel",           [r"INDIGO", r"IRCTC", r"MAKEMYTRIP", r"UBER", r"OLA\b", r"AIRLINE", r"REDBUS"]),
-    ("Utilities",        [r"ELECTRICITY", r"MSEB", r"BSES", r"\bGAS\b", r"WATER BILL", r"BROADBAND",
-                           r"\bJIO\b", r"AIRTEL", r"VODAFONE", r"RECHARGE", r"\bBBPS\b"]),
-    ("Subscription",     [r"GOOGLE ?PLAY", r"NETFLIX", r"SPOTIFY", r"\bME DC SI\b"]),
-    ("Loan/EMI",         [r"BAJAJ ?FINA"]),
-    ("Healthcare",       [r"HEALT", r"HOSPITAL", r"PHARMA", r"CLINIC", r"MEDIC"]),
-    ("Entertainment",    [r"\bPMC\b", r"CINEMA", r"MOVIE", r"BOOKMYSHOW", r"PVR\b", r"INOX\b"]),
-    ("Reversal",         [r"^REV\b", r"\bUPIRET\b", r"REVERSAL"]),
+    (
+        "Investment",
+        [
+            r"KANJIFOREX",
+            r"MUTUAL FUND",
+            r"\bSIP\b",
+            r"ZERODHA",
+            r"GROWW",
+            r"ICICI ?DIRECT",
+            r"\bFD THROUGH MOBILE\b",
+            r"\bNSE\b",
+            r"STOCK",
+        ],
+    ),
+    ("Insurance", [r"ADPRULIFE", r"LIC\b", r"INSURANCE", r"PRULIFE"]),
+    ("Loan/EMI", [r"\bEMI\b", r"\bLOAN\b", r"\bNACH\b", r"\bECS\b"]),
+    ("Groceries", [r"ZEPTO", r"BLINKIT", r"BIGBASKET", r"D ?MART", r"SUPER SHOPPY", r"GROFERS", r"KIRANA", r"GROCERY"]),
+    ("Food & Dining", [r"ZOMATO", r"SWIGGY", r"RESTAURANT", r"\bCAFE\b", r"EATS"]),
+    ("Shopping", [r"MYNTRA", r"AMAZON", r"FLIPKART", r"AJIO", r"NYKAA"]),
+    ("Travel", [r"INDIGO", r"IRCTC", r"MAKEMYTRIP", r"UBER", r"OLA\b", r"AIRLINE", r"REDBUS"]),
+    (
+        "Utilities",
+        [
+            r"ELECTRICITY",
+            r"MSEB",
+            r"BSES",
+            r"\bGAS\b",
+            r"WATER BILL",
+            r"BROADBAND",
+            r"\bJIO\b",
+            r"AIRTEL",
+            r"VODAFONE",
+            r"RECHARGE",
+            r"\bBBPS\b",
+        ],
+    ),
+    ("Subscription", [r"GOOGLE ?PLAY", r"NETFLIX", r"SPOTIFY", r"\bME DC SI\b"]),
+    ("Loan/EMI", [r"BAJAJ ?FINA"]),
+    ("Healthcare", [r"HEALT", r"HOSPITAL", r"PHARMA", r"CLINIC", r"MEDIC"]),
+    ("Entertainment", [r"\bPMC\b", r"CINEMA", r"MOVIE", r"BOOKMYSHOW", r"PVR\b", r"INOX\b"]),
+    ("Reversal", [r"^REV\b", r"\bUPIRET\b", r"REVERSAL"]),
 ]
 
 TRANSFER_PREFIXES = [
-    r"^UPI\b", r"^IMPS\b", r"^NEFT\b", r"^RTGS\b", r"^IB FUNDS TRANSFER\b", r"^MMT\b",
+    r"^UPI\b",
+    r"^IMPS\b",
+    r"^NEFT\b",
+    r"^RTGS\b",
+    r"^IB FUNDS TRANSFER\b",
+    r"^MMT\b",
 ]
 
 
@@ -92,7 +135,7 @@ def looks_like_name(token: str) -> bool:
 def extract_party_hdfc(narration: str) -> str:
     n = narration.strip()
     up = n.upper()
-    if up.startswith("UPI-") or up.startswith("UPI -") :
+    if up.startswith("UPI-") or up.startswith("UPI -"):
         parts = n.split("-")
         if len(parts) > 1:
             cand = parts[1].strip()
@@ -256,20 +299,22 @@ def process_hdfc(file_name):
         if not party:
             flags_count["party"] += 1
 
-        rows.append({
-            "Date": date_str,
-            "_sort_date": pd.to_datetime(date_str, format="%d-%m-%Y"),
-            "_orig_order": extracted,
-            "Type": txn_type,
-            "Category": category,
-            "Party (To/From)": party,
-            "Description": narration_str,
-            "Amount": round(amount, 2),
-            "Bank Account Number": "XXXXXXXX0360",
-            "Bank Name": "HDFC Bank",
-            "Balance after Transaction": round(float(balance), 2) if pd.notna(balance) else "",
-            "Flag": build_flag(category, party),
-        })
+        rows.append(
+            {
+                "Date": date_str,
+                "_sort_date": pd.to_datetime(date_str, format="%d-%m-%Y"),
+                "_orig_order": extracted,
+                "Type": txn_type,
+                "Category": category,
+                "Party (To/From)": party,
+                "Description": narration_str,
+                "Amount": round(amount, 2),
+                "Bank Account Number": "XXXXXXXX0360",
+                "Bank Name": "HDFC Bank",
+                "Balance after Transaction": round(float(balance), 2) if pd.notna(balance) else "",
+                "Flag": build_flag(category, party),
+            }
+        )
         extracted += 1
     counts["Acct_Statement_XXXXXXXX0360 (HDFC Bank)"] = extracted
 
@@ -313,22 +358,25 @@ def process_icici(file_name):
         if not party:
             flags_count["party"] += 1
 
-        rows.append({
-            "Date": date_str,
-            "_sort_date": pd.to_datetime(date_str, format="%d-%m-%Y"),
-            "_orig_order": extracted,
-            "Type": txn_type,
-            "Category": category,
-            "Party (To/From)": party,
-            "Description": narration_str,
-            "Amount": round(amount, 2),
-            "Bank Account Number": "XXXXXX0747",
-            "Bank Name": "ICICI Bank",
-            "Balance after Transaction": round(float(balance), 2) if pd.notna(balance) else "",
-            "Flag": build_flag(category, party),
-        })
+        rows.append(
+            {
+                "Date": date_str,
+                "_sort_date": pd.to_datetime(date_str, format="%d-%m-%Y"),
+                "_orig_order": extracted,
+                "Type": txn_type,
+                "Category": category,
+                "Party (To/From)": party,
+                "Description": narration_str,
+                "Amount": round(amount, 2),
+                "Bank Account Number": "XXXXXX0747",
+                "Bank Name": "ICICI Bank",
+                "Balance after Transaction": round(float(balance), 2) if pd.notna(balance) else "",
+                "Flag": build_flag(category, party),
+            }
+        )
         extracted += 1
     counts["OpTransactionHistory (ICICI Bank)"] = extracted
+
 
 #
 for file_name in HDFC_FILES:
@@ -343,8 +391,16 @@ final_df = final_df.sort_values(by=["_sort_date", "_file_order"], kind="stable")
 final_df = final_df.drop(columns=["_sort_date", "_orig_order", "_file_order"])
 
 OUTPUT_COLUMNS = [
-    "Date", "Type", "Category", "Party (To/From)", "Description",
-    "Amount", "Bank Account Number", "Bank Name", "Balance after Transaction", "Flag"
+    "Date",
+    "Type",
+    "Category",
+    "Party (To/From)",
+    "Description",
+    "Amount",
+    "Bank Account Number",
+    "Bank Name",
+    "Balance after Transaction",
+    "Flag",
 ]
 final_df = final_df[OUTPUT_COLUMNS]
 

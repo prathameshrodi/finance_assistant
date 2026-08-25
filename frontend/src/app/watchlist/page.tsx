@@ -13,22 +13,20 @@ import {
   Loader2,
   TrendingUp,
   X,
-  Zap,
   Target,
   Sparkles,
   BarChart3,
   Activity,
   ShieldAlert,
   PieChart,
-  Building2,
   ArrowUpRight,
   MessageSquareQuote,
   Layers,
-  ChevronRight,
   Brain,
   Globe,
 } from "lucide-react";
 import { API_BASE_URL } from "@/lib/api";
+import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
 
 interface WatchlistItem {
   id: string;
@@ -311,7 +309,7 @@ export default function WatchlistPage() {
       )}
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-6 pb-24 md:pb-8 touch-scroll">
         {/* Search & Global Ticker Discovery Bar */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 relative">
           <div className="relative flex-1 w-full max-w-lg">
@@ -1124,6 +1122,9 @@ export default function WatchlistPage() {
           </div>
         </div>
       )}
+
+      {/* 📱 Mobile Sticky Bottom Navigation */}
+      <MobileBottomNav />
     </div>
   );
 }

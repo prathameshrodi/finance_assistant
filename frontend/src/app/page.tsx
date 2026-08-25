@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useDashboardWebSocket } from "@/hooks/useDashboardWebSocket";
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, getWsBaseUrl } from "@/lib/api";
 import { MetricsHero } from "@/components/dashboard/MetricsHero";
 import { GlobalPeriodSelector } from "@/components/dashboard/GlobalPeriodSelector";
 import { SpendVelocityChart } from "@/components/dashboard/SpendVelocityChart";
@@ -13,11 +14,10 @@ import { BenchmarkLineChart } from "@/components/dashboard/BenchmarkLineChart";
 import { OpportunityRadar } from "@/components/dashboard/OpportunityRadar";
 import { CopilotChat } from "@/components/dashboard/CopilotChat";
 import { StatementUploadModal } from "@/components/dashboard/StatementUploadModal";
+import { OnboardingWizardModal } from "@/components/dashboard/OnboardingWizardModal";
+import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
 import {
   Zap,
-  RefreshCw,
-  Layers,
-  ShieldCheck,
   Activity,
   UploadCloud,
   AlertCircle,
@@ -30,6 +30,7 @@ import {
   Sparkles,
   TrendingUp,
   Brain,
+  Settings,
 } from "lucide-react";
 
 interface PipelineJob {
@@ -53,10 +54,35 @@ export default function DashboardPage() {
     sendChatMessage,
   } = useDashboardWebSocket();
 
+  const router = useRouter();
   const [activeMobileTab, setActiveMobileTab] = useState<"overview" | "spends" | "wealth" | "radar" | "copilot">("overview");
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [activeJob, setActiveJob] = useState<PipelineJob | null>(null);
   const [showNotificationDrawer, setShowNotificationDrawer] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Check if first-time setup is needed from backend status API
+  useEffect(() => {
+    const checkOnboarding = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/onboarding/status`);
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.is_onboarded) {
+            router.push("/setup");
+          }
+        }
+      } catch (e) {
+        console.debug("Onboarding check error:", e);
+      }
+    };
+    checkOnboarding();
+  }, [router]);
 
   // Background LangGraph Pipeline Handler
   const handleStartPipeline = async (file: File, statementType: string, skipStaging: boolean = true) => {
@@ -136,7 +162,10 @@ export default function DashboardPage() {
         </div>
         <h2 className="text-lg font-bold text-white mb-1">Connecting to Local AI Assistant...</h2>
         <p className="text-xs text-slate-400 max-w-sm">
-          Establishing WebSocket connection with local backend on <code className="text-blue-400">ws://127.0.0.1:8000/ws</code>
+          Establishing WebSocket connection with backend on{" "}
+          <code className="text-blue-400 font-mono" suppressHydrationWarning>
+            {mounted ? getWsBaseUrl() : "ws://..."}
+          </code>
         </p>
       </div>
     );
@@ -302,6 +331,20 @@ export default function DashboardPage() {
               <span className="hidden sm:inline">Ledger</span>
             </Link>
 
+            {/* Profile Setup / Onboarding Button */}
+            <button
+              onClick={() => setIsOnboardingOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 text-xs font-semibold shadow-sm transition-all active:scale-95"
+              title="Configure Personal Baseline & Profile"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+              <span className="hidden md:inline">
+                {dashboardData?.user?.name && dashboardData.user.name !== "Primary Investor"
+                  ? dashboardData.user.name
+                  : "Setup Profile"}
+              </span>
+            </button>
+
             {/* Upload Statement Button */}
             <button
               onClick={() => setIsUploadModalOpen(true)}
@@ -311,6 +354,15 @@ export default function DashboardPage() {
               <UploadCloud className="w-3.5 h-3.5 text-blue-400" />
               <span className="hidden sm:inline">Upload Statement</span>
             </button>
+
+            {/* Settings Page Link */}
+            <Link
+              href="/settings"
+              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              title="System Settings & Accounts Manager"
+            >
+              <Settings className="w-4 h-4" />
+            </Link>
 
             {/* Notifications Bell */}
             <button
@@ -414,7 +466,7 @@ export default function DashboardPage() {
       )}
 
       {/* Main Content Dashboard */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6 pb-24 md:pb-8 touch-scroll">
         <GlobalPeriodSelector
           currentPeriod={period}
           onSelectPeriod={fetchDashboardForPeriod}
@@ -504,6 +556,22 @@ export default function DashboardPage() {
         onClose={() => setIsUploadModalOpen(false)}
         onStartPipeline={handleStartPipeline}
       />
+
+      <OnboardingWizardModal
+        isOpen={isOnboardingOpen}
+        onClose={() => {
+          setIsOnboardingOpen(false);
+          localStorage.setItem("finance_onboarding_dismissed", "true");
+        }}
+        onSuccess={() => {
+          setIsOnboardingOpen(false);
+          localStorage.setItem("finance_onboarding_dismissed", "true");
+          triggerSync();
+        }}
+      />
+
+      {/* 📱 Mobile Sticky Bottom Navigation */}
+      <MobileBottomNav pendingCount={pendingCount} />
     </div>
   );
 }

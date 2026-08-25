@@ -9,7 +9,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { TrendingUp, Award } from "lucide-react";
+import { Award } from "lucide-react";
 
 interface BenchmarkLineChartProps {
   data: PerformanceBenchmarkPoint[];
